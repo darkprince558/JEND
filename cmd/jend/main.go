@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/darkprince558/jend/internal/transport"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -39,10 +41,12 @@ var sendCmd = &cobra.Command{
 
 var receiveCmd = &cobra.Command{
 	Use:   "receive [code]",
-	Short: "Receive a file using a PAKE code",
-	Args:  cobra.ExactArgs(1), // Ensures the user provides the code
+	Short: "Receive a file",
 	Run: func(cmd *cobra.Command, args []string) {
 		code := args[0]
-		fmt.Printf("Attempting to receive with code: %s\n", code)
+		fmt.Printf("do Using code: %s\n", code)
+
+		// Call our new function from the transport package
+		transport.StartReceiver("8080")
 	},
 }
