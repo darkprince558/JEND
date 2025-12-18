@@ -3,21 +3,30 @@ package transport
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"os"
+
+	"github.com/darkprince558/jend/pkg/protocol"
 )
 
-// calculateHash creates the SHA-256 fingerprint of a file
+const ChunkSize = 1024 // 1KB chunks for testing
+
+// Metadata represents the initial handshake payload
+type Metadata struct {
+	Name string
+	Size int64
+	Hash string
+}
+
 func calculateHash(filePath string) string {
 	file, err := os.Open(filePath)
 	if err != nil {
-		fmt.Println("Error opening file for hash:", err)
 		return ""
 	}
 	defer file.Close()
-
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return ""
@@ -33,7 +42,7 @@ func StartReceiver(port string) {
 	}
 	defer listener.Close()
 
-	fmt.Printf("Listening on port %s... Waiting for sender.\n", port)
+	fmt.Printf("Listening on port %s...\n", port)
 
 	conn, err := listener.Accept()
 	if err != nil {
@@ -41,51 +50,92 @@ func StartReceiver(port string) {
 		return
 	}
 	defer conn.Close()
-	fmt.Println("Connection established!")
 
-	// 1. Read Metadata (The Handshake)
-	var fileSize int64
-	var fileName string
-	var senderProvidedHash string
+	var newFile *os.File
+	var currentSize int64
+	var expectedSize int64
+	var meta Metadata
 
-	// Read Size, Name, and Hash in order
-	fmt.Fscanf(conn, "%d\n", &fileSize)
-	fmt.Fscanf(conn, "%s\n", &fileName)
-	fmt.Fscanf(conn, "%s\n", &senderProvidedHash)
+	// The Main Receive Loop
+	for {
+		// 1. Read the Packet Header
+		pType, length, err := protocol.DecodeHeader(conn)
+		if err != nil {
+			if err == io.EOF {
+				fmt.Println("Sender closed connection.")
+				break
+			}
+			fmt.Println("Header decode error:", err)
+			return
+		}
 
-	fmt.Printf("Receiving: %s (%d bytes)\n", fileName, fileSize)
+		// 2. Read the Payload (Body) based on Length
+		payload := make([]byte, length)
+		_, err = io.ReadFull(conn, payload)
+		if err != nil {
+			fmt.Println("Payload read error:", err)
+			return
+		}
 
-	// 2. Prepare the destination file
-	saveName := "received_" + fileName
-	newFile, err := os.Create(saveName)
-	if err != nil {
-		fmt.Println("Create file error:", err)
-		return
+		// 3. Handle Packet Type
+		switch pType {
+		case protocol.TypeHandshake:
+			// Parse JSON Metadata
+			if err := json.Unmarshal(payload, &meta); err != nil {
+				fmt.Println("Handshake parse error:", err)
+				return
+			}
+			expectedSize = meta.Size
+			fmt.Printf("Receiving: %s (%d bytes)\n", meta.Name, meta.Size)
+
+			newFile, err = os.Create("received_" + meta.Name)
+			if err != nil {
+				fmt.Println("File create error:", err)
+				return
+			}
+			// Don't defer close here strictly, we close when done or error
+
+		case protocol.TypeData:
+			if newFile == nil {
+				fmt.Println("Error: Received data before handshake")
+				return
+			}
+			// Write chunk to disk
+			n, err := newFile.Write(payload)
+			if err != nil {
+				fmt.Println("Disk write error:", err)
+				return
+			}
+			currentSize += int64(n)
+
+			// Send ACK back to Sender
+			if err := protocol.EncodeHeader(conn, protocol.TypeAck, 0); err != nil {
+				fmt.Println("Ack send error:", err)
+				return
+			}
+
+			// Visual progress update
+			fmt.Printf("\rDownloading... %d / %d bytes", currentSize, expectedSize)
+		}
+
+		// Check if transfer is complete
+		if currentSize >= expectedSize && expectedSize > 0 {
+			fmt.Println("\nTransfer Complete.")
+			newFile.Close()
+			break
+		}
 	}
-	defer newFile.Close()
 
-	// 3. Stream the file data
-	fmt.Println("Downloading...")
-	_, err = io.Copy(newFile, io.LimitReader(conn, fileSize))
-	if err != nil {
-		fmt.Println("Transfer error:", err)
-		return
-	}
-
-	fmt.Printf("Successfully received %s\n", fileName)
-
-	// 4. Integrity Check
-	receivedHash := calculateHash(saveName)
-	if receivedHash == senderProvidedHash {
+	// Integrity Verification
+	receivedHash := calculateHash("received_" + meta.Name)
+	if receivedHash == meta.Hash {
 		fmt.Println("Integrity Verified: Match.")
 	} else {
-		fmt.Println("CRITICAL ERROR: File corrupted or hash mismatch.")
-		fmt.Printf("Expected: %s\nActual:   %s\n", senderProvidedHash, receivedHash)
+		fmt.Printf("Integrity Mismatch!\nExpected: %s\nActual:   %s\n", meta.Hash, receivedHash)
 	}
 }
 
 func StartSender(address string, filePath string) {
-	// 1. Open the file and calculate its "fingerprint"
 	file, err := os.Open(filePath)
 	if err != nil {
 		fmt.Println("File error:", err)
@@ -98,10 +148,11 @@ func StartSender(address string, filePath string) {
 		fmt.Println("Stat error:", err)
 		return
 	}
-	fileSize := fileInfo.Size()
+
+	// Pre-calculate hash
+	fmt.Println("Calculating hash...")
 	fileHash := calculateHash(filePath)
 
-	// 2. Connect to receiver
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		fmt.Println("Connection error:", err)
@@ -109,20 +160,66 @@ func StartSender(address string, filePath string) {
 	}
 	defer conn.Close()
 
-	// 3. Send the "Header"
-	// Send Size, Name, and Hash separated by newlines
-	fmt.Fprintf(conn, "%d\n", fileSize)
-	fmt.Fprintf(conn, "%s\n", fileInfo.Name())
-	fmt.Fprintf(conn, "%s\n", fileHash)
+	// 1. Send Handshake Packet
+	meta := Metadata{
+		Name: fileInfo.Name(),
+		Size: fileInfo.Size(),
+		Hash: fileHash,
+	}
+	metaBytes, _ := json.Marshal(meta)
 
-	fmt.Printf("Sending %s (%d bytes)...\n", fileInfo.Name(), fileSize)
-
-	// 4. Stream the actual file bytes
-	bytesSent, err := io.Copy(conn, file)
-	if err != nil {
-		fmt.Println("Send error:", err)
+	if err := protocol.EncodeHeader(conn, protocol.TypeHandshake, uint32(len(metaBytes))); err != nil {
+		fmt.Println("Handshake send error:", err)
+		return
+	}
+	if _, err := conn.Write(metaBytes); err != nil {
+		fmt.Println("Handshake body error:", err)
 		return
 	}
 
-	fmt.Printf("Successfully sent %d bytes\n", bytesSent)
+	// 2. Start Chunk Loop
+	buffer := make([]byte, ChunkSize)
+	var totalSent int64
+
+	fmt.Printf("Sending %s in %d byte chunks...\n", meta.Name, ChunkSize)
+
+	for {
+		n, readErr := file.Read(buffer)
+		if n > 0 {
+			// Send Header
+			if err := protocol.EncodeHeader(conn, protocol.TypeData, uint32(n)); err != nil {
+				fmt.Println("Header send error:", err)
+				return
+			}
+			// Send Payload
+			if _, err := conn.Write(buffer[:n]); err != nil {
+				fmt.Println("Data send error:", err)
+				return
+			}
+
+			// Wait for ACK
+			// We expect a header of TypeAck (length 0)
+			ackType, _, err := protocol.DecodeHeader(conn)
+			if err != nil {
+				fmt.Println("Ack receive error:", err)
+				return
+			}
+			if ackType != protocol.TypeAck {
+				fmt.Println("Error: Expected ACK, got", ackType)
+				return
+			}
+
+			totalSent += int64(n)
+			fmt.Printf("\rSent: %d / %d bytes", totalSent, meta.Size)
+		}
+
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			fmt.Println("File read error:", readErr)
+			return
+		}
+	}
+	fmt.Println("\nFile sent successfully.")
 }
