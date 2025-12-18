@@ -5,7 +5,7 @@ import (
 	"net"
 )
 
-func StartRececiver(port string) {
+func StartReceiver(port string) {
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		fmt.Println(err)
@@ -32,5 +32,25 @@ func StartRececiver(port string) {
 		return
 	}
 	fmt.Println("Received: ", string(buffer[:n]))
+}
+
+func StartSender(adress string, message string) {
+	conn, err := net.Dial("tcp", adress)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer conn.Close()
+
+	fmt.Println("Connected to server!")
+
+	_, err = conn.Write([]byte(message))
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println("Message sent!")
 
 }

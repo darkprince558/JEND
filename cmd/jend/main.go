@@ -36,6 +36,7 @@ var sendCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		filePath := args[0]
 		fmt.Printf("Initiating transfer for: %s\n", filePath)
+		transport.StartSender("localhost:8080", "Hello, World! Sending file: "+filePath)
 	},
 }
 
