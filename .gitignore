@@ -1,0 +1,18 @@
+# Binaries for all platforms
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+
+# Test output
+*.out
+
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# IDE Specific (GoLand)
+.idea/
+*.iml
