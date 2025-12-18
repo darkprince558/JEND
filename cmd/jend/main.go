@@ -4,16 +4,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
-
 	"github.com/darkprince558/jend/internal/transport"
+	"github.com/spf13/cobra"
 )
 
-// rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "jend",
-	Short: "JEND: A High-speed, secure P2P file transfer tool",
-	Long:  `A CLI tool for sending files directly between peers using QUIC and PAKE encryption.`,
+	Short: "JEND: P2P file transfer tool",
+	Long:  `A CLI tool for sending files directly between peers.`,
 }
 
 func main() {
@@ -24,30 +22,29 @@ func main() {
 }
 
 func init() {
-	// We will add subcommands (send/receive) here in the next step
 	rootCmd.AddCommand(sendCmd)
 	rootCmd.AddCommand(receiveCmd)
 }
 
 var sendCmd = &cobra.Command{
 	Use:   "send [file]",
-	Short: "Send a file or folder",
-	Args:  cobra.MinimumNArgs(1), // Ensures the user provides a file path
+	Short: "Send a file",
+	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		filePath := args[0]
-		fmt.Printf("Initiating transfer for: %s\n", filePath)
-		transport.StartSender("localhost:8080", "Hello, World! Sending file: "+filePath)
+		transport.StartSender("localhost:8080", filePath)
 	},
 }
 
 var receiveCmd = &cobra.Command{
 	Use:   "receive [code]",
 	Short: "Receive a file",
+	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		code := args[0]
-		fmt.Printf("do Using code: %s\n", code)
+		fmt.Printf("Using transfer code: %s\n", code)
 
-		// Call our new function from the transport package
+		// Start the listener
 		transport.StartReceiver("8080")
 	},
 }
