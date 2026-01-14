@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -180,18 +181,40 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 
 	// Wait for Ack
 	sendMsg(ui.StatusMsg("Handshake sent. Waiting for ACK..."))
-	pType, _, err := protocol.DecodeHeader(stream)
+	pType, length, err := protocol.DecodeHeader(stream)
 	if err != nil || pType != protocol.TypeAck {
 		sendMsg(ui.ErrorMsg(fmt.Errorf("handshake failed")))
 		return
 	}
 
+	// Read Offset (Resume logic)
+	var offset int64 = 0
+	if length == 8 {
+		if err := binary.Read(stream, binary.LittleEndian, &offset); err != nil {
+			sendMsg(ui.ErrorMsg(err))
+			return
+		}
+		if offset > 0 {
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Resuming transfer from %d bytes...", offset)))
+			if _, err := file.Seek(offset, 0); err != nil {
+				sendMsg(ui.ErrorMsg(err))
+				return
+			}
+		}
+	} else if length > 0 {
+		// Consume unknown payload
+		io.CopyN(io.Discard, stream, int64(length))
+	}
+
 	// Send Data
 	sendMsg(ui.StatusMsg("Sending data..."))
 	buf := make([]byte, ChunkSize)
-	var totalSent int64
+	var totalSent int64 = offset // Start tracking from offset
 
 	startTime := time.Now()
+	// Adjust start time to reflect already "sent" bytes for speed calc?
+	// Or just calc speed based on new bytes. Let's do new bytes for current speed.
+
 	for {
 		n, err := file.Read(buf)
 		if n > 0 {

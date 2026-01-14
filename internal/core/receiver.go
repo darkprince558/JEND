@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -93,12 +94,32 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	}
 
 	// Send Ack
-	protocol.EncodeHeader(stream, protocol.TypeAck, 0)
-
-	// Sanitize Filename (prevent Zip Slip)
+	// Check for existing partial file to resume
 	safeName := filepath.Base(meta.Name)
 	if safeName == "." || safeName == "/" {
 		safeName = "received_file"
+	}
+
+	// Strategy: Always download to .partial
+	// Resume checks .partial file
+	// On success, strip .partial and handle collisions
+	partialPath := filepath.Join(outputDir, safeName+".partial")
+	var offset int64 = 0
+
+	if info, err := os.Stat(partialPath); err == nil {
+		if info.Size() < meta.Size && info.Size() > 0 {
+			offset = info.Size()
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Partial download found. Resuming from %d bytes...", offset)))
+		}
+	}
+
+	if err := protocol.EncodeHeader(stream, protocol.TypeAck, 8); err != nil {
+		sendMsg(ui.ErrorMsg(err))
+		return
+	}
+	if err := binary.Write(stream, binary.LittleEndian, offset); err != nil {
+		sendMsg(ui.ErrorMsg(err))
+		return
 	}
 
 	sendMsg(ui.StatusMsg("Receiving " + safeName))
@@ -111,8 +132,15 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 		}
 	}
 
-	finalPath := filepath.Join(outputDir, "received_"+safeName)
-	outFile, err := os.Create(finalPath)
+	var outFile *os.File
+	if offset > 0 {
+		// Resume: Open in Append mode
+		outFile, err = os.OpenFile(partialPath, os.O_WRONLY|os.O_APPEND, 0644)
+	} else {
+		// New: Create/Truncate
+		outFile, err = os.Create(partialPath)
+	}
+
 	if err != nil {
 		sendMsg(ui.ErrorMsg(err))
 		return
@@ -121,10 +149,26 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 
 	// Receive Loop
 	buf := make([]byte, ChunkSize)
-	var totalRecv int64
+	var totalRecv int64 = offset
 	startTime := time.Now()
 
 	hasher := sha256.New()
+
+	// If resuming, we must hash the existing part first so the final hash matches the full file
+	if offset > 0 {
+		existingFile, err := os.Open(partialPath)
+		if err != nil {
+			sendMsg(ui.ErrorMsg(err))
+			return
+		}
+		if _, err := io.CopyN(hasher, existingFile, offset); err != nil {
+			existingFile.Close()
+			sendMsg(ui.ErrorMsg(err))
+			return
+		}
+		existingFile.Close()
+	}
+
 	mw := io.MultiWriter(outFile, hasher)
 
 	for {
@@ -179,16 +223,42 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 		Protocol:   "Done",
 	})
 
+	// Close explicitly to allow rename
+	outFile.Close()
+
 	// Verify Checksum
+	finalPath := filepath.Join(outputDir, safeName)
 	if meta.Hash != "" {
 		recvHash := fmt.Sprintf("%x", hasher.Sum(nil))
 		if recvHash == meta.Hash {
 			sendMsg(ui.StatusMsg("Integrity Check: PASSED"))
+
+			// Safe Move Logic
+			counter := 0
+			// Find a non-colliding name
+			for {
+				if _, err := os.Stat(finalPath); os.IsNotExist(err) {
+					break
+				}
+				counter++
+				ext := filepath.Ext(safeName)
+				nameBox := strings.TrimSuffix(safeName, ext)
+				finalPath = filepath.Join(outputDir, fmt.Sprintf("%s (%d)%s", nameBox, counter, ext))
+			}
+
+			if err := os.Rename(partialPath, finalPath); err != nil {
+				sendMsg(ui.ErrorMsg(fmt.Errorf("failed to save final file: %v", err)))
+				return
+			}
+			sendMsg(ui.StatusMsg("Saved to: " + filepath.Base(finalPath)))
+
 		} else {
-			sendMsg(ui.ErrorMsg(fmt.Errorf("Integrity Check: FAILED (Expected %s, Got %s)", meta.Hash, recvHash)))
+			sendMsg(ui.ErrorMsg(fmt.Errorf("Integrity Check: FAILED (Expected %s, Got %s). Keeping .partial file.", meta.Hash, recvHash)))
 			return
 		}
 	} else {
+		// No hash provided, just move it (risky but consistent with old logic)
+		os.Rename(partialPath, finalPath)
 		sendMsg(ui.StatusMsg("Integrity Check: SKIPPED (No hash provided)"))
 	}
 
