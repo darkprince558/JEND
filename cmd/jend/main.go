@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/darkprince558/jend/internal/audit"
 	"github.com/darkprince558/jend/internal/core"
 	"github.com/darkprince558/jend/internal/ui"
 
@@ -56,7 +57,7 @@ func main() {
 	}
 
 	if len(args) < 1 { // args doesn't include program name in this slice construction
-		fmt.Println("Usage: jend [flags] <send|receive> [args]")
+		fmt.Println("Usage: jend [flags] <send|receive|history> [args]")
 		os.Exit(1)
 	}
 
@@ -80,6 +81,8 @@ func main() {
 			os.Exit(1)
 		}
 		startReceiver(args[1], headless, outputDir, autoUnzip)
+	case "history":
+		audit.ShowHistory()
 	default:
 		fmt.Println("Unknown command:", command)
 		os.Exit(1)

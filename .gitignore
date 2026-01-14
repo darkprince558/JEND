@@ -5,9 +5,21 @@
 *.so
 *.dylib
 bin/
+jend
+
+# Logs and PIDs
+*.log
+*.pid
+history.jsonl
 
 # Test output
 *.out
+testdir/
+output_*
+downloads/
+*_payload.txt
+test*.txt
+debug_code.txt
 
 # OS Specific
 .DS_Store

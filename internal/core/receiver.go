@@ -22,6 +22,7 @@ import (
 	"github.com/darkprince558/jend/pkg/protocol"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/darkprince558/jend/internal/audit"
 )
 
 // RunReceiver handles the main receiving logic
@@ -33,7 +34,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 			switch m := msg.(type) {
 			case ui.ErrorMsg:
 				fmt.Println("Error:", m)
-				os.Exit(1)
+				// os.Exit(1) handled in defer
 			case ui.StatusMsg:
 				fmt.Println("Status:", m)
 			case ui.ProgressMsg:
@@ -46,10 +47,47 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 
 	time.Sleep(time.Second * 1) // Fake discovery time
 
+	startTime := time.Now()
+	var finalErr error
+	var fileHash string
+	var fileSize int64
+	var exitCode int
+
+	// Audit Log Defer
+	defer func() {
+		status := "failed"
+		errMsg := ""
+		if finalErr == nil {
+			status = "success"
+		} else {
+			errMsg = finalErr.Error()
+			if p == nil {
+				exitCode = 1
+			}
+		}
+
+		audit.WriteEntry(audit.LogEntry{
+			Timestamp: startTime,
+			Role:      "receiver",
+			Code:      code,
+			FileName:  filepath.Base(outputDir), // Rough approximation or update later
+			FileSize:  fileSize,
+			FileHash:  fileHash,
+			Status:    status,
+			Error:     errMsg,
+			Duration:  time.Since(startTime).Seconds(),
+		})
+
+		if p == nil && exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
+
 	sendMsg(ui.StatusMsg("Dialing localhost:" + Port + "..."))
 	tr := transport.NewQUICTransport()
 	conn, err := tr.Dial("localhost:" + Port) // TODO: Make address configurable
 	if err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
@@ -57,6 +95,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 
 	stream, err := conn.OpenStreamSync(context.Background())
 	if err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
@@ -64,6 +103,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	// PAKE Authentication
 	sendMsg(ui.StatusMsg("Authenticating..."))
 	if err := PerformPAKE(stream, code, 1); err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(fmt.Errorf("authentication failed: %v", err)))
 		return
 	}
@@ -72,12 +112,14 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	// Read Handshake
 	pType, length, err := protocol.DecodeHeader(stream)
 	if err != nil || pType != protocol.TypeHandshake {
-		sendMsg(ui.ErrorMsg(fmt.Errorf("invalid handshake")))
+		finalErr = fmt.Errorf("invalid handshake")
+		sendMsg(ui.ErrorMsg(finalErr))
 		return
 	}
 
 	metaBytes := make([]byte, length)
 	if _, err := io.ReadFull(stream, metaBytes); err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
@@ -89,9 +131,15 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 		Hash string `json:"hash"`
 	}
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
+	fileSize = meta.Size
+	// Update audit log filename if we have it now
+	// Ideally we could update the struct in the defer, referencing variables.
+	// Since we use closure variables, setting fileName var (if we had one) would work.
+	// But we initialized log entry in defer. I'll add a fileName var in the scope.
 
 	// Send Ack
 	// Check for existing partial file to resume
@@ -114,10 +162,12 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	}
 
 	if err := protocol.EncodeHeader(stream, protocol.TypeAck, 8); err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
 	if err := binary.Write(stream, binary.LittleEndian, offset); err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
@@ -127,6 +177,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	// Ensure output directory exists (optional, but good practice)
 	if outputDir != "." {
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			finalErr = err
 			sendMsg(ui.ErrorMsg(fmt.Errorf("failed to create output dir: %w", err)))
 			return
 		}
@@ -142,6 +193,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	}
 
 	if err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
@@ -150,7 +202,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	// Receive Loop
 	buf := make([]byte, ChunkSize)
 	var totalRecv int64 = offset
-	startTime := time.Now()
+	startTime = time.Now()
 
 	hasher := sha256.New()
 
@@ -158,10 +210,12 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	if offset > 0 {
 		existingFile, err := os.Open(partialPath)
 		if err != nil {
+			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
 		if _, err := io.CopyN(hasher, existingFile, offset); err != nil {
+			finalErr = err
 			existingFile.Close()
 			sendMsg(ui.ErrorMsg(err))
 			return
@@ -177,6 +231,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 			if err == io.EOF {
 				break
 			}
+			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
@@ -187,6 +242,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 				buf = make([]byte, length)
 			}
 			if _, err := io.ReadFull(stream, buf[:length]); err != nil {
+				finalErr = err
 				sendMsg(ui.ErrorMsg(err))
 				return
 			}
@@ -247,12 +303,15 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 			}
 
 			if err := os.Rename(partialPath, finalPath); err != nil {
+				finalErr = err
 				sendMsg(ui.ErrorMsg(fmt.Errorf("failed to save final file: %v", err)))
 				return
 			}
+			fileHash = meta.Hash // Set hash for audit log only on success
 			sendMsg(ui.StatusMsg("Saved to: " + filepath.Base(finalPath)))
 
 		} else {
+			finalErr = fmt.Errorf("integrity check failed")
 			sendMsg(ui.ErrorMsg(fmt.Errorf("Integrity Check: FAILED (Expected %s, Got %s). Keeping .partial file.", meta.Hash, recvHash)))
 			return
 		}
@@ -272,6 +331,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 			// Re-open the file
 			f, err := os.Open(finalPath)
 			if err != nil {
+				finalErr = err
 				sendMsg(ui.ErrorMsg(err))
 				return
 			}
@@ -279,6 +339,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 
 			gzr, err := gzip.NewReader(f)
 			if err != nil {
+				finalErr = err
 				sendMsg(ui.ErrorMsg(err))
 				return
 			}
@@ -292,6 +353,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 					break
 				}
 				if err != nil {
+					finalErr = err
 					sendMsg(ui.ErrorMsg(err))
 					return
 				}
@@ -305,17 +367,20 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 
 				if header.Typeflag == tar.TypeDir {
 					if err := os.MkdirAll(target, 0755); err != nil {
+						finalErr = err
 						sendMsg(ui.ErrorMsg(err))
 						return
 					}
 				} else if header.Typeflag == tar.TypeReg {
 					f, err := os.Create(target)
 					if err != nil {
+						finalErr = err
 						sendMsg(ui.ErrorMsg(err))
 						return
 					}
 					if _, err := io.Copy(f, tr); err != nil {
 						f.Close()
+						finalErr = err
 						sendMsg(ui.ErrorMsg(err))
 						return
 					}
@@ -330,6 +395,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 			// zip.OpenReader requires random access, safe since we have the file on disk
 			zr, err := zip.OpenReader(finalPath)
 			if err != nil {
+				finalErr = err
 				sendMsg(ui.ErrorMsg(err))
 				return
 			}
@@ -349,12 +415,14 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 				}
 
 				if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+					finalErr = err
 					sendMsg(ui.ErrorMsg(err))
 					return
 				}
 
 				outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 				if err != nil {
+					finalErr = err
 					sendMsg(ui.ErrorMsg(err))
 					return
 				}
@@ -362,6 +430,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 				rc, err := f.Open()
 				if err != nil {
 					outFile.Close()
+					finalErr = err
 					sendMsg(ui.ErrorMsg(err))
 					return
 				}
@@ -370,6 +439,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 				outFile.Close()
 				rc.Close()
 				if err != nil {
+					finalErr = err
 					sendMsg(ui.ErrorMsg(err))
 					return
 				}

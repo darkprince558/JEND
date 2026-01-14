@@ -19,6 +19,7 @@ import (
 	"github.com/darkprince558/jend/pkg/protocol"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/darkprince558/jend/internal/audit"
 )
 
 const (
@@ -35,7 +36,7 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 			switch m := msg.(type) {
 			case ui.ErrorMsg:
 				fmt.Println("Error:", m)
-				os.Exit(1)
+				// os.Exit(1) handled in defer
 			case ui.StatusMsg:
 				fmt.Println("Status:", m)
 			case ui.ProgressMsg:
@@ -46,12 +47,50 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 		}
 	}
 
+	startTime := time.Now()
+	var finalErr error
+	var fileHash string
+	var fileSize int64
+	var exitCode int
+
+	// Audit Log Defer
+	defer func() {
+		status := "failed"
+		errMsg := ""
+		if finalErr == nil {
+			status = "success"
+		} else {
+			errMsg = finalErr.Error()
+			if p == nil {
+				exitCode = 1
+			}
+		}
+
+		audit.WriteEntry(audit.LogEntry{
+			Timestamp: startTime,
+			Role:      "sender",
+			FileName:  filepath.Base(filePath),
+			FileSize:  fileSize,
+			FileHash:  fileHash,
+			Code:      code,
+			Status:    status,
+			Error:     errMsg,
+			Duration:  time.Since(startTime).Seconds(),
+		})
+
+		if p == nil && exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
+
 	// Check if path is a directory
 	info, err := os.Stat(filePath)
 	if err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
+	fileSize = info.Size()
 
 	var file *os.File
 	var fileName string
@@ -62,12 +101,14 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 		sendMsg(ui.StatusMsg("Compressing to .tar.gz..."))
 		tempPath, err := CompressPath(filePath, "tar.gz")
 		if err != nil {
+			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
 
 		file, err = os.Open(tempPath)
 		if err != nil {
+			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
@@ -81,12 +122,14 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 		sendMsg(ui.StatusMsg("Compressing to .zip..."))
 		tempPath, err := CompressPath(filePath, "zip")
 		if err != nil {
+			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
 
 		file, err = os.Open(tempPath)
 		if err != nil {
+			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
@@ -100,6 +143,7 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 		// Normal File
 		file, err = os.Open(filePath)
 		if err != nil {
+			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
@@ -115,6 +159,7 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 	tr := transport.NewQUICTransport()
 	listener, err := tr.Listen(Port)
 	if err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
@@ -127,6 +172,7 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 
 	conn, err := listener.Accept(ctx)
 	if err != nil {
+		finalErr = err
 		if ctx.Err() == context.DeadlineExceeded {
 			sendMsg(ui.ErrorMsg(fmt.Errorf("code has expired after %v of inactivity, please try again", timeout)))
 		} else {
@@ -138,6 +184,7 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 
 	stream, err := conn.AcceptStream(context.Background())
 	if err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
@@ -147,6 +194,7 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 	// Assume PerformPAKE is available in core.
 	sendMsg(ui.StatusMsg("Authenticating..."))
 	if err := PerformPAKE(stream, code, 0); err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(fmt.Errorf("authentication failed: %v", err)))
 		return
 	}
@@ -156,11 +204,13 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 	sendMsg(ui.StatusMsg("Calculating checksum..."))
 	hasher := sha256.New()
 	if _, err := io.Copy(hasher, file); err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
-	fileHash := fmt.Sprintf("%x", hasher.Sum(nil))
+	fileHash = fmt.Sprintf("%x", hasher.Sum(nil))
 	if _, err := file.Seek(0, 0); err != nil { // Reset file pointer
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
@@ -174,6 +224,7 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 	}
 	metaBytes, _ := json.Marshal(meta)
 	if err := protocol.EncodeHeader(stream, protocol.TypeHandshake, uint32(len(metaBytes))); err != nil {
+		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
@@ -183,7 +234,8 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 	sendMsg(ui.StatusMsg("Handshake sent. Waiting for ACK..."))
 	pType, length, err := protocol.DecodeHeader(stream)
 	if err != nil || pType != protocol.TypeAck {
-		sendMsg(ui.ErrorMsg(fmt.Errorf("handshake failed")))
+		finalErr = fmt.Errorf("handshake failed: %v", err)
+		sendMsg(ui.ErrorMsg(finalErr))
 		return
 	}
 
@@ -191,12 +243,14 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 	var offset int64 = 0
 	if length == 8 {
 		if err := binary.Read(stream, binary.LittleEndian, &offset); err != nil {
+			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
 		if offset > 0 {
 			sendMsg(ui.StatusMsg(fmt.Sprintf("Resuming transfer from %d bytes...", offset)))
 			if _, err := file.Seek(offset, 0); err != nil {
+				finalErr = err
 				sendMsg(ui.ErrorMsg(err))
 				return
 			}
@@ -211,7 +265,7 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 	buf := make([]byte, ChunkSize)
 	var totalSent int64 = offset // Start tracking from offset
 
-	startTime := time.Now()
+	// startTime := time.Now() // Already set at top
 	// Adjust start time to reflect already "sent" bytes for speed calc?
 	// Or just calc speed based on new bytes. Let's do new bytes for current speed.
 
@@ -219,10 +273,12 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 		n, err := file.Read(buf)
 		if n > 0 {
 			if err := protocol.EncodeHeader(stream, protocol.TypeData, uint32(n)); err != nil {
+				finalErr = err
 				sendMsg(ui.ErrorMsg(err))
 				return
 			}
 			if _, err := stream.Write(buf[:n]); err != nil {
+				finalErr = err
 				sendMsg(ui.ErrorMsg(err))
 				return
 			}
@@ -250,6 +306,7 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 			break
 		}
 		if err != nil {
+			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
