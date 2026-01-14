@@ -7,6 +7,7 @@ import (
 
 // Packet Types
 const (
+	TypePAKE      = 0 // PAKE authentication message
 	TypeHandshake = 1 // Initial metadata (Filename, Size, Hash)
 	TypeData      = 2 // File chunk data
 	TypeAck       = 3 // Acknowledgment of receipt
