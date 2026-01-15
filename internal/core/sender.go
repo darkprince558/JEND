@@ -21,6 +21,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/darkprince558/jend/internal/audit"
 	"github.com/darkprince558/jend/internal/discovery"
+	"github.com/gofrs/flock"
 )
 
 const (
@@ -148,12 +149,33 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
+
+		// Try to Lock (Best Effort)
+		fileLock := flock.New(filePath)
+		locked, err := fileLock.TryLock()
+		if err != nil {
+			// Lock failed (permission/system error), just warn
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Could not enable file lock: %v", err)))
+		} else if !locked {
+			// File is busy
+			sendMsg(ui.StatusMsg("Warning: File is currently in use by another process. Changes during transfer may corrupt data."))
+		} else {
+			// Lock acquired!
+			sendMsg(ui.StatusMsg("File locked for reading."))
+		}
+
 		fileName = info.Name()
 		cleanup = func() {
+			if locked {
+				fileLock.Unlock()
+			}
 			file.Close()
 		}
 	}
 	defer cleanup()
+
+	// Capture Modification Time for "Changed Warning"
+	startModTime := info.ModTime()
 
 	// Start Listener
 	// Note: We need to pass the transport or create it. For now creating new.
@@ -323,6 +345,20 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 	}
 
 	stream.Close()
+
+	// Final Integrity Check: Did file change?
+	// Only for normal files, simpler logic for now.
+	if !info.IsDir() && !forceTar && !forceZip {
+		if newInfo, err := os.Stat(filePath); err == nil {
+			if !newInfo.ModTime().Equal(startModTime) {
+				msg := "WARNING: File was modified during transfer! Integrity compromised."
+				sendMsg(ui.StatusMsg(msg))
+				// Also log this in audit?
+				// finalErr = fmt.Errorf("file modified during transfer") // If we want to mark as failed
+			}
+		}
+	}
+
 	sendMsg(ui.ProgressMsg{
 		SentBytes:  info.Size(),
 		TotalBytes: info.Size(),

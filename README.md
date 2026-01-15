@@ -93,14 +93,12 @@ We are actively building the ultimate transfer tool. Here is what's next:
 *   **Network Intelligence**:
     *   **Smart Discovery**: Hybrid mDNS (LAN) + P2P Hole Punching + Relay Fallback.
     *   **IPv6 Support**: First-class citizen support.
-*   **"Resume Gold"**:
+*   **"Resume Features"**:
     *   **Auto-Resume**: Interruptions will just pause, not fail.
     *   **Parallel Streaming**: Splitting large files for max bandwidth.
     *   **Bandwidth Throttling**: Limits via `--limit 5MB/s`.
 *   **New Modes**:
     *   **Clientless Web Receive**: Receive files directly in a browser.
-    *   **Dead Drop**: Encrypted async upload for offline receivers.
-    *   **Ghost Mode**: Force relay usage for absolute IP privacy.
     *   **Dead Drop**: Encrypted async upload for offline receivers.
     *   **Ghost Mode**: Force relay usage for absolute IP privacy.
 
