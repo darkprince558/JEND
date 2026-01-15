@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -27,8 +28,18 @@ type LogEntry struct {
 	Duration  float64   `json:"duration_seconds"`
 }
 
+var logPathOverride string
+
+// SetLogPathOverride sets a custom path for the log file (for testing)
+func SetLogPathOverride(path string) {
+	logPathOverride = path
+}
+
 // GetLogPath returns the path to the history log file
 func GetLogPath() (string, error) {
+	if logPathOverride != "" {
+		return logPathOverride, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -56,22 +67,114 @@ func WriteEntry(entry LogEntry) error {
 	}
 
 	// Marshaling to JSON
-	data, err := json.Marshal(entry)
+	// Marshaling to JSON
+	// data, err := json.Marshal(entry) // Removed, marshaling happens in else block
+	// if err != nil {
+	// 	return err
+	// }
+
+	// Prune if necessary (Keep last 1000)
+	// We do this by loading. It's not the most efficient for massive logs but fine for 1000 limit.
+	// Prune if necessary (Keep last 1000)
+	// We do this by loading. It's not the most efficient for massive logs but fine for 1000 limit.
+	entries, err := LoadHistory()
+
+	// Determine if we need to prune/rewrite
+	// We strictly limit file to 1000.
+	// If existing >= 1000, we must rewrite.
+	// If existing < 1000, we can just append (optimization).
+
+	if err == nil && len(entries) >= 1000 {
+		// Sort by timestamp is done in LoadHistory (Newest First)
+		// We insert current entry at top (assuming it is newest)
+		// Actually best to append and re-sort or just prepend since it's likely newest.
+
+		all := append([]LogEntry{entry}, entries...)
+		// Resort to be safe if timestamps are messy, but usually unnecessary
+		sort.Slice(all, func(i, j int) bool {
+			return all[i].Timestamp.After(all[j].Timestamp)
+		})
+
+		// Keep top 1000
+		keep := all[:1000]
+
+		if err := RewriteHistory(keep); err != nil {
+			// Fallback? If rewrite fails, we might lose data or just fail.
+			return err
+		}
+	} else {
+		// Just append
+		// Open file in append mode
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+
+		data, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+
+		if _, err := f.Write(append(data, '\n')); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RewriteHistory overwrites the log file with the provided entries
+func RewriteHistory(entries []LogEntry) error {
+	path, err := GetLogPath()
 	if err != nil {
 		return err
 	}
 
-	// Open file in append mode
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// Create/Truncate
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	if _, err := f.Write(append(data, '\n')); err != nil {
-		return err
+	// Entries are passed in Newest First (from LoadHistory),
+	// but typically we append logs Oldest First so that "tail" works naturally?
+	// Actually JSONL order doesn't strictly matter if we always load & sort.
+	// But appending usually implies chronological order.
+	// LoadHistory sorts Newest First. So we should reverse them if we want to restore file order.
+
+	for i := len(entries) - 1; i >= 0; i-- {
+		data, err := json.Marshal(entries[i])
+		if err != nil {
+			continue
+		}
+		f.Write(append(data, '\n'))
 	}
 	return nil
+}
+
+// ClearHistory deletes the history log file
+func ClearHistory() error {
+	path, err := GetLogPath()
+	if err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+// GetEntry finds a specific log entry by ID (prefix match supported)
+func GetEntry(id string) (LogEntry, error) {
+	entries, err := LoadHistory()
+	if err != nil {
+		return LogEntry{}, err
+	}
+
+	for _, e := range entries {
+		if strings.HasPrefix(e.ID, id) {
+			return e, nil
+		}
+	}
+	return LogEntry{}, fmt.Errorf("entry not found")
 }
 
 // LoadHistory reads all log entries from the history file
@@ -188,6 +291,42 @@ func ShowHistory() {
 		)
 	}
 	fmt.Println("")
+}
+
+func ShowDetail(id string) {
+	entry, err := GetEntry(id)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Println("")
+	fmt.Println(headerStyle.Render("TRANSFER DETAILS"))
+	fmt.Println("")
+
+	printKV := func(k, v string) {
+		fmt.Printf("%s %s\n", lipgloss.NewStyle().Bold(true).Width(15).Foreground(lipgloss.Color("240")).Render(k+":"), v)
+	}
+
+	printKV("ID", entry.ID)
+	printKV("Date", entry.Timestamp.Format(time.RFC822))
+	printKV("Role", strings.ToUpper(entry.Role))
+	printKV("Status", entry.Status)
+	printKV("File", entry.FileName)
+	printKV("Size", formatBytes(entry.FileSize))
+	printKV("Code", entry.Code)
+	printKV("Duration", fmt.Sprintf("%.2fs", entry.Duration))
+	fmt.Println("")
+
+	fmt.Println(lipgloss.NewStyle().Bold(true).Render("Integrity Proof:"))
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF")).Render(entry.FileHash))
+	fmt.Println("")
+
+	if entry.Error != "" {
+		fmt.Println(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF0000")).Render("Error Log:"))
+		fmt.Println(entry.Error)
+		fmt.Println("")
+	}
 }
 
 func formatBytes(b int64) string {

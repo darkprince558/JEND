@@ -82,7 +82,20 @@ func main() {
 		}
 		startReceiver(args[1], headless, outputDir, autoUnzip)
 	case "history":
-		audit.ShowHistory()
+		if len(args) > 1 {
+			if args[1] == "--clear" {
+				if err := audit.ClearHistory(); err != nil {
+					fmt.Printf("Error clearing history: %v\n", err)
+				} else {
+					fmt.Println("History cleared.")
+				}
+				return
+			}
+			// Assume it's a detail lookup
+			audit.ShowDetail(args[1])
+		} else {
+			audit.ShowHistory()
+		}
 	default:
 		fmt.Println("Unknown command:", command)
 		os.Exit(1)
