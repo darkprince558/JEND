@@ -71,6 +71,19 @@ jend --headless --timeout 5m send backup.db
 *   **Path Sanitization**: Automatic protection against Zip Slip attacks.
 *   **Timeout**: Transfers automatically expire if not accepted within the timeout window (default 10m).
 
+### Audit Trail
+Keep track of every file you send or receive.
+```bash
+# View transfer history
+jend history
+
+# View detailed proof for a specific transfer
+jend history partial-red-panda
+
+# Clear your logs
+jend history --clear
+```
+
 ---
 
 ## Coming Soon (Roadmap)
@@ -88,9 +101,9 @@ We are actively building the ultimate transfer tool. Here is what's next:
     *   **Clientless Web Receive**: Receive files directly in a browser.
     *   **Dead Drop**: Encrypted async upload for offline receivers.
     *   **Ghost Mode**: Force relay usage for absolute IP privacy.
-*   **Enterprise**:
-    *   **Audit Logging**: Cryptographic transfer receipts.
-    *   **History**: View past transfer logs.
+    *   **Dead Drop**: Encrypted async upload for offline receivers.
+    *   **Ghost Mode**: Force relay usage for absolute IP privacy.
+
 
 ---
 *Note: Currently defaults to direct connection (localhost/IP). Use in trusted networks or tunnel accordingly.*

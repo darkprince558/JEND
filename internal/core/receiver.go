@@ -23,6 +23,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/darkprince558/jend/internal/audit"
+	"github.com/darkprince558/jend/internal/discovery"
 )
 
 // RunReceiver handles the main receiving logic
@@ -83,9 +84,23 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 		}
 	}()
 
-	sendMsg(ui.StatusMsg("Dialing localhost:" + Port + "..."))
+	sendMsg(ui.StatusMsg("Searching for sender on local network..."))
+
+	// Create a transport early
 	tr := transport.NewQUICTransport()
-	conn, err := tr.Dial("localhost:" + Port) // TODO: Make address configurable
+
+	// Try Discovery
+	address := "localhost:" + Port
+	foundIP, err := discovery.FindSender(code, 5*time.Second)
+	if err == nil {
+		sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender at %s!", foundIP)))
+		address = foundIP
+	} else {
+		sendMsg(ui.StatusMsg("Discovery timed out, trying localhost..."))
+	}
+
+	sendMsg(ui.StatusMsg("Dialing " + address + "..."))
+	conn, err := tr.Dial(address) // TODO: Make address configurable
 	if err != nil {
 		finalErr = err
 		sendMsg(ui.ErrorMsg(err))

@@ -20,6 +20,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/darkprince558/jend/internal/audit"
+	"github.com/darkprince558/jend/internal/discovery"
 )
 
 const (
@@ -162,6 +163,15 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
+	}
+
+	// Start Advertising
+	stopAdvertising, err := discovery.StartAdvertising(9000, code) // TODO: Dynamic Port
+	if err != nil {
+		sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to advertise on network: %v", err)))
+	} else {
+		defer stopAdvertising()
+		sendMsg(ui.StatusMsg("Broadcasting on local network..."))
 	}
 
 	// Wait for connection
