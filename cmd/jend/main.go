@@ -26,6 +26,8 @@ func main() {
 	forceTar := false
 	forceZip := false
 	autoUnzip := false
+	var textContent string
+	var isText bool
 	var args []string
 
 	// Poor man's flag parsing to avoid rearranging all args
@@ -55,6 +57,15 @@ func main() {
 				fmt.Println("Error: --dir requires a path")
 				os.Exit(1)
 			}
+		} else if arg == "--text" {
+			if i+1 < len(os.Args) {
+				textContent = os.Args[i+1]
+				isText = true
+				i++
+			} else {
+				fmt.Println("Error: --text requires content")
+				os.Exit(1)
+			}
 		} else {
 			args = append(args, arg)
 		}
@@ -74,11 +85,15 @@ func main() {
 	command := args[0]
 	switch command {
 	case "send":
-		if len(args) < 2 {
-			fmt.Println("Usage: jend send <file>")
+		if !isText && len(args) < 2 {
+			fmt.Println("Usage: jend send <file> OR jend send --text \"content\"")
 			os.Exit(1)
 		}
-		startSender(args[1], headless, timeout, forceTar, forceZip)
+		filePath := ""
+		if !isText {
+			filePath = args[1]
+		}
+		startSender(filePath, textContent, isText, headless, timeout, forceTar, forceZip)
 	case "receive":
 		if len(args) < 2 {
 			fmt.Println("Usage: jend receive <code>")
@@ -106,7 +121,7 @@ func main() {
 	}
 }
 
-func startSender(filePath string, headless bool, timeout time.Duration, forceTar, forceZip bool) {
+func startSender(filePath string, textContent string, isText bool, headless bool, timeout time.Duration, forceTar, forceZip bool) {
 	// Generate Code (3 words)
 	code := petname.Generate(3, "-")
 
@@ -128,10 +143,16 @@ func startSender(filePath string, headless bool, timeout time.Duration, forceTar
 
 	if headless {
 		fmt.Printf("Code: %s\n", code)
-		core.RunSender(ctx, nil, ui.RoleSender, filePath, code, timeout, forceTar, forceZip)
+		core.RunSender(ctx, nil, ui.RoleSender, filePath, textContent, isText, code, timeout, forceTar, forceZip)
 	} else {
 		// Init UI
-		model := ui.NewModel(ui.RoleSender, filepath.Base(filePath), code)
+		var displayName string
+		if isText {
+			displayName = "Text Snippet"
+		} else {
+			displayName = filepath.Base(filePath)
+		}
+		model := ui.NewModel(ui.RoleSender, displayName, code)
 		p := tea.NewProgram(model)
 
 		var wg sync.WaitGroup
@@ -140,7 +161,7 @@ func startSender(filePath string, headless bool, timeout time.Duration, forceTar
 		// Transfer Logic
 		go func() {
 			defer wg.Done()
-			core.RunSender(ctx, p, ui.RoleSender, filePath, code, timeout, forceTar, forceZip)
+			core.RunSender(ctx, p, ui.RoleSender, filePath, textContent, isText, code, timeout, forceTar, forceZip)
 		}()
 
 		if _, err := p.Run(); err != nil {

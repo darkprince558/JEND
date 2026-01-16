@@ -360,3 +360,93 @@ func TestSenderCancellation(t *testing.T) {
 		t.Error("Receiver did not report cancellation! Expected 'transfer cancelled by sender'")
 	}
 }
+
+func TestTextTransfer(t *testing.T) {
+	// Setup
+	tmpDir := t.TempDir()
+	outDir := filepath.Join(tmpDir, "output")
+	os.MkdirAll(outDir, 0755)
+
+	textContent := "Hello World from JEND Text Mode!"
+
+	// Build Binary
+	binaryPath := filepath.Join(tmpDir, "jend_test_text")
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "../cmd/jend")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build binary: %v", err)
+	}
+
+	// Start Sender with --text
+	senderCmd := exec.Command(binaryPath, "send", "--text", textContent, "--headless", "--timeout", "10s")
+	var senderStdout bytes.Buffer
+	senderCmd.Stdout = &senderStdout
+
+	if err := senderCmd.Start(); err != nil {
+		t.Fatalf("Failed to start sender: %v", err)
+	}
+	defer func() {
+		if senderCmd.Process != nil {
+			senderCmd.Process.Kill()
+		}
+	}()
+
+	// Wait for code
+	time.Sleep(2 * time.Second)
+	output := senderStdout.String()
+	marker := "Code: "
+	idx := strings.Index(output, marker)
+	if idx == -1 {
+		t.Fatalf("Sender didn't print code. Output: %s", output)
+	}
+	code := strings.TrimSpace(output[idx+len(marker):])
+	code = strings.Fields(code)[0]
+	t.Logf("Got Code: %s", code)
+
+	// Start Receiver
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	var receiverStdout bytes.Buffer
+	receiverCmd.Stdout = &receiverStdout
+
+	if err := receiverCmd.Start(); err != nil {
+		t.Fatalf("Failed to start receiver: %v", err)
+	}
+	defer func() {
+		if receiverCmd.Process != nil {
+			receiverCmd.Process.Kill()
+		}
+	}()
+
+	// Wait for completion
+	done := make(chan error, 1)
+	go func() {
+		done <- receiverCmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			// Print partial output on error
+			t.Logf("Receiver Output: %s", receiverStdout.String())
+			t.Fatalf("Receiver failed: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Logf("Receiver Output: %s", receiverStdout.String())
+		t.Fatal("Receiver timed out")
+	}
+
+	// Check Output
+	recvOutput := receiverStdout.String()
+	t.Logf("Receiver Output: %s", recvOutput)
+	if !strings.Contains(recvOutput, "Received Text:") {
+		t.Error("Receiver output missing 'Received Text:' header")
+	}
+	if !strings.Contains(recvOutput, textContent) {
+		t.Errorf("Receiver output missing content: %s", textContent)
+	}
+
+	// Ensure NO file was created
+	files, _ := os.ReadDir(outDir)
+	if len(files) > 0 {
+		t.Errorf("Receiver created files in text mode! Found: %v", files)
+	}
+}

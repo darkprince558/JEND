@@ -3,6 +3,7 @@ package core
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/rand"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/darkprince558/jend/internal/transport"
 	"github.com/darkprince558/jend/internal/ui"
 	"github.com/darkprince558/jend/pkg/protocol"
@@ -204,6 +206,7 @@ func handleReceiveSession(
 		Size int64  `json:"size"`
 		Code string `json:"code"`
 		Hash string `json:"hash"`
+		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
 		return false, 0, "", err
@@ -213,6 +216,25 @@ func handleReceiveSession(
 	// Ideally we could update the struct in the defer, referencing variables.
 	// Since we use closure variables, setting fileName var (if we had one) would work.
 	// But we initialized log entry in defer. I'll add a fileName var in the scope.
+
+	// Handle Text Mode
+	if meta.Type == "text" {
+		// Just check size warnings
+		sendMsg(ui.StatusMsg("Receiving text snippet..."))
+
+		// Read all data
+		// Limit size for safety (e.g. 1MB for text)
+		limit := int64(1 * 1024 * 1024)
+		if meta.Size > limit {
+			return false, meta.Size, "", fmt.Errorf("text content too large (>1MB)")
+		}
+
+		// We can't use ReadFull directly if it's chunked via TypeData...
+		// Wait, the protocol sends TypeData chunks. We reusing the loop?
+		// Reusing the loop logic is better than rewriting it.
+		// But the loop writes to mw (MultiWriter -> file + hasher).
+		// We can point mw to a bytes.Buffer instead of a file.
+	}
 
 	// Send Ack
 	// Check for existing partial file to resume
@@ -227,10 +249,12 @@ func handleReceiveSession(
 	partialPath := filepath.Join(outputDir, safeName+".partial")
 	var offset int64 = 0
 
-	if info, err := os.Stat(partialPath); err == nil {
-		if info.Size() < meta.Size && info.Size() > 0 {
-			offset = info.Size()
-			sendMsg(ui.StatusMsg(fmt.Sprintf("Partial download found. Resuming from %d bytes...", offset)))
+	if meta.Type != "text" {
+		if info, err := os.Stat(partialPath); err == nil {
+			if info.Size() < meta.Size && info.Size() > 0 {
+				offset = info.Size()
+				sendMsg(ui.StatusMsg(fmt.Sprintf("Partial download found. Resuming from %d bytes...", offset)))
+			}
 		}
 	}
 
@@ -250,17 +274,26 @@ func handleReceiveSession(
 		}
 	}
 
-	var outFile *os.File
-	if offset > 0 {
-		// Resume: Open in Append mode
-		outFile, err = os.OpenFile(partialPath, os.O_WRONLY|os.O_APPEND, 0644)
-	} else {
-		// New: Create/Truncate
-		outFile, err = os.Create(partialPath)
-	}
+	var outFile io.WriteCloser
+	var textBuf *bytes.Buffer
 
-	if err != nil {
-		return false, fileSize, "", err
+	if meta.Type == "text" {
+		textBuf = new(bytes.Buffer)
+		// wrapper to satisfy WriteCloser
+		outFile = &nopCloser{textBuf}
+	} else {
+		var f *os.File
+		if offset > 0 {
+			// Resume: Open in Append mode
+			f, err = os.OpenFile(partialPath, os.O_WRONLY|os.O_APPEND, 0644)
+		} else {
+			// New: Create/Truncate
+			f, err = os.Create(partialPath)
+		}
+		if err != nil {
+			return false, fileSize, "", err
+		}
+		outFile = f
 	}
 	defer outFile.Close()
 
@@ -358,6 +391,17 @@ func handleReceiveSession(
 		if recvHash == meta.Hash {
 			sendMsg(ui.StatusMsg("Integrity Check: PASSED"))
 
+			if meta.Type == "text" {
+				content := textBuf.String()
+				fmt.Printf("\nReceived Text:\n%s\n", content)
+				if err := clipboard.WriteAll(content); err == nil {
+					sendMsg(ui.StatusMsg("Text copied to clipboard!"))
+				} else {
+					sendMsg(ui.StatusMsg("Failed to copy to clipboard"))
+				}
+				return true, fileSize, meta.Hash, nil
+			}
+
 			// Safe Move Logic
 			counter := 0
 			// Find a non-colliding name
@@ -381,6 +425,13 @@ func handleReceiveSession(
 			return false, fileSize, "", fmt.Errorf("Integrity Check: FAILED (Expected %s, Got %s).", meta.Hash, recvHash)
 		}
 	} else {
+		if meta.Type == "text" {
+			content := textBuf.String()
+			fmt.Printf("\nReceived Text:\n%s\n", content)
+			clipboard.WriteAll(content)
+			return true, fileSize, "", nil
+		}
+
 		// No hash provided, just move it (risky but consistent with old logic)
 		os.Rename(partialPath, finalPath)
 		sendMsg(ui.StatusMsg("Integrity Check: SKIPPED (No hash provided)"))
@@ -578,6 +629,14 @@ func PerformPAKE(stream io.ReadWriter, password string, role int) error {
 			return err
 		}
 
-		return nil
 	}
+	return nil
+}
+
+type nopCloser struct {
+	io.Writer
+}
+
+func (n *nopCloser) Close() error {
+	return nil
 }

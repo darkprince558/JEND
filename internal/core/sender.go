@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/darkprince558/jend/internal/transport"
@@ -31,7 +32,7 @@ const (
 )
 
 // RunSender handles the main sending logic
-func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, code string, timeout time.Duration, forceTar, forceZip bool) {
+func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, timeout time.Duration, forceTar, forceZip bool) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -86,97 +87,110 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, code
 		}
 	}()
 
-	// Check if path is a directory
-	info, err := os.Stat(filePath)
-	if err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
-	}
-	fileSize = info.Size()
-
-	var file *os.File
+	var file io.Reader
 	var fileName string
 	var cleanup func()
+	var err error
+	var startModTime time.Time
+	var info os.FileInfo
 
-	// Compression Logic
-	if info.IsDir() || forceTar {
-		sendMsg(ui.StatusMsg("Compressing to .tar.gz..."))
-		tempPath, err := CompressPath(filePath, "tar.gz")
-		if err != nil {
-			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
-			return
-		}
-
-		file, err = os.Open(tempPath)
-		if err != nil {
-			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
-			return
-		}
-		fileName = filepath.Base(filePath) + ".tar.gz"
-		cleanup = func() {
-			file.Close()
-			os.Remove(tempPath)
-		}
-		info, _ = file.Stat()
-	} else if forceZip {
-		sendMsg(ui.StatusMsg("Compressing to .zip..."))
-		tempPath, err := CompressPath(filePath, "zip")
-		if err != nil {
-			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
-			return
-		}
-
-		file, err = os.Open(tempPath)
-		if err != nil {
-			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
-			return
-		}
-		fileName = filepath.Base(filePath) + ".zip"
-		cleanup = func() {
-			file.Close()
-			os.Remove(tempPath)
-		}
-		info, _ = file.Stat()
+	if isText {
+		// handle text mode
+		fileSize = int64(len(textContent))
+		file = strings.NewReader(textContent)
+		fileName = "clipboard" // Special name for text mode
+		cleanup = func() {}
+		// No modtime for text
 	} else {
-		// Normal File
-		file, err = os.Open(filePath)
+		// Check if path is a directory
+		info, err = os.Stat(filePath)
 		if err != nil {
 			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
 			return
 		}
+		fileSize = info.Size()
 
-		// Try to Lock (Best Effort)
-		fileLock := flock.New(filePath)
-		locked, err := fileLock.TryLock()
-		if err != nil {
-			// Lock failed (permission/system error), just warn
-			sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Could not enable file lock: %v", err)))
-		} else if !locked {
-			// File is busy
-			sendMsg(ui.StatusMsg("Warning: File is currently in use by another process. Changes during transfer may corrupt data."))
-		} else {
-			// Lock acquired!
-			sendMsg(ui.StatusMsg("File locked for reading."))
-		}
+		var fileObj *os.File
 
-		fileName = info.Name()
-		cleanup = func() {
-			if locked {
-				fileLock.Unlock()
+		// Compression Logic
+		if info.IsDir() || forceTar {
+			sendMsg(ui.StatusMsg("Compressing to .tar.gz..."))
+			tempPath, err := CompressPath(filePath, "tar.gz")
+			if err != nil {
+				finalErr = err
+				sendMsg(ui.ErrorMsg(err))
+				return
 			}
-			file.Close()
+
+			fileObj, err = os.Open(tempPath)
+			if err != nil {
+				finalErr = err
+				sendMsg(ui.ErrorMsg(err))
+				return
+			}
+			fileName = filepath.Base(filePath) + ".tar.gz"
+			cleanup = func() {
+				fileObj.Close()
+				os.Remove(tempPath)
+			}
+			info, _ = fileObj.Stat()
+		} else if forceZip {
+			sendMsg(ui.StatusMsg("Compressing to .zip..."))
+			tempPath, err := CompressPath(filePath, "zip")
+			if err != nil {
+				finalErr = err
+				sendMsg(ui.ErrorMsg(err))
+				return
+			}
+
+			fileObj, err = os.Open(tempPath)
+			if err != nil {
+				finalErr = err
+				sendMsg(ui.ErrorMsg(err))
+				return
+			}
+			fileName = filepath.Base(filePath) + ".zip"
+			cleanup = func() {
+				fileObj.Close()
+				os.Remove(tempPath)
+			}
+			info, _ = fileObj.Stat()
+		} else {
+			// Normal File
+			fileObj, err = os.Open(filePath)
+			if err != nil {
+				finalErr = err
+				sendMsg(ui.ErrorMsg(err))
+				return
+			}
+
+			// Try to Lock (Best Effort)
+			fileLock := flock.New(filePath)
+			locked, err := fileLock.TryLock()
+			if err != nil {
+				// Lock failed (permission/system error), just warn
+				sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Could not enable file lock: %v", err)))
+			} else if !locked {
+				// File is busy
+				sendMsg(ui.StatusMsg("Warning: File is currently in use by another process. Changes during transfer may corrupt data."))
+			} else {
+				// Lock acquired!
+				sendMsg(ui.StatusMsg("File locked for reading."))
+			}
+
+			fileName = info.Name()
+			cleanup = func() {
+				if locked {
+					fileLock.Unlock()
+				}
+				fileObj.Close()
+			}
 		}
+		file = fileObj
+		startModTime = info.ModTime()
 	}
 	defer cleanup()
-
-	// Capture Modification Time for "Changed Warning"
-	startModTime := info.ModTime()
 
 	// Start Listener
 	// Note: We need to pass the transport or create it. For now creating new.
@@ -258,7 +272,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, code
 		}
 
 		// Handle this connection in a sub-function or block
-		done, err := handleConnection(ctx, stream, file, info, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg)
+		done, err := handleConnection(ctx, stream, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg)
 		if done {
 			// Transfer Complete
 			return
@@ -284,8 +298,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, code
 func handleConnection(
 	ctx context.Context,
 	stream io.ReadWriter,
-	file *os.File,
-	info os.FileInfo,
+	file io.Reader,
+	isText bool,
 	fileName string,
 	code string,
 	currentOffset int64,
@@ -314,9 +328,14 @@ func handleConnection(
 
 	sendMsg(ui.StatusMsg("Calculating checksum..."))
 	hasher := sha256.New()
-	if _, err := file.Seek(0, 0); err != nil {
-		return false, err
+
+	// Reset reader if it's an os.File or bytes.Reader-like
+	if seeker, ok := file.(io.Seeker); ok {
+		if _, err := seeker.Seek(0, 0); err != nil {
+			return false, err
+		}
 	}
+
 	if _, err := io.Copy(hasher, file); err != nil {
 		return false, err
 	}
@@ -329,7 +348,14 @@ func handleConnection(
 		"code": code,
 		"hash": fileHash,
 	}
+	if isText {
+		meta["type"] = "text"
+	} else {
+		meta["type"] = "file"
+	}
+
 	metaBytes, _ := json.Marshal(meta)
+
 	if err := protocol.EncodeHeader(stream, protocol.TypeHandshake, uint32(len(metaBytes))); err != nil {
 		return false, err
 	}
@@ -356,8 +382,19 @@ func handleConnection(
 		io.CopyN(io.Discard, stream, int64(length))
 	}
 
-	if _, err := file.Seek(offset, 0); err != nil {
-		return false, err
+	if seeker, ok := file.(io.Seeker); ok {
+		if _, err := seeker.Seek(offset, 0); err != nil {
+			return false, err
+		}
+	} else if offset > 0 {
+		return false, fmt.Errorf("resume not supported for this source")
+	} else {
+		// offset == 0 and not seekable.
+		// If we hashed it, we consumed it. If we can't seek back, we can't send it.
+		// However, maybe we should error if not seekable AND we did hash?
+		// RunSender ensures file is os.File (seekable) or strings.Reader (seekable).
+		// So this branch might be unreachable for current inputs, but good to be safe.
+		// If we are here, we probably fail read later if hashed.
 	}
 
 	// Send Data
