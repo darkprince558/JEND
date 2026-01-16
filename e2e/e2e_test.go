@@ -533,3 +533,94 @@ func TestNoClipboard(t *testing.T) {
 		t.Error("Receiver output missing skip message")
 	}
 }
+
+func TestNoHistory(t *testing.T) {
+	// Setup
+	tmpDir := t.TempDir()
+	outDir := filepath.Join(tmpDir, "output")
+	os.MkdirAll(outDir, 0755)
+
+	textContent := "Ghost Transfer"
+
+	// Build Binary
+	binaryPath := filepath.Join(tmpDir, "jend_test_nohist")
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "../cmd/jend")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build binary: %v", err)
+	}
+
+	// 1. Clear History explicitly to ensure clean slate
+	// Note: This clears the ACTUAL history of the user running the test if we don't mock the audit file location.
+	// However, `internal/audit` writes to `~/.jend/audit.json` or similar.
+	// For testing, we should probably redirect the audit file or just check the count before/after if we can't redirect.
+	// Ideally `audit` package should allow overriding the path.
+	// HACK: We will check the output of `jend history` command.
+
+	// Get initial history count
+	histCmd := exec.Command(binaryPath, "history")
+	var histOut bytes.Buffer
+	histCmd.Stdout = &histOut
+	if err := histCmd.Run(); err != nil {
+		t.Fatalf("Failed to run history: %v", err)
+	}
+	initialLines := strings.Count(histOut.String(), "\n")
+
+	// 2. Perform Transfer with --no-history
+	// Start Sender
+	senderCmd := exec.Command(binaryPath, "send", "--text", textContent, "--headless", "--timeout", "10s", "--no-history")
+	var senderStdout bytes.Buffer
+	senderCmd.Stdout = &senderStdout
+
+	if err := senderCmd.Start(); err != nil {
+		t.Fatalf("Failed to start sender: %v", err)
+	}
+	defer func() {
+		if senderCmd.Process != nil {
+			senderCmd.Process.Kill()
+		}
+	}()
+
+	time.Sleep(2 * time.Second)
+	output := senderStdout.String()
+	marker := "Code: "
+	idx := strings.Index(output, marker)
+	if idx == -1 {
+		t.Fatalf("Sender didn't print code. Output: %s", output)
+	}
+	code := strings.TrimSpace(output[idx+len(marker):])
+	code = strings.Fields(code)[0]
+	t.Logf("Got Code: %s", code)
+
+	// Start Receiver WITH --no-history
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--no-history")
+	if err := receiverCmd.Start(); err != nil {
+		t.Fatalf("Failed to start receiver: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- receiverCmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Receiver failed: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Receiver timed out")
+	}
+
+	// 3. Check History again
+	histCmd2 := exec.Command(binaryPath, "history")
+	var histOut2 bytes.Buffer
+	histCmd2.Stdout = &histOut2
+	if err := histCmd2.Run(); err != nil {
+		t.Fatalf("Failed to run history again: %v", err)
+	}
+	finalLines := strings.Count(histOut2.String(), "\n")
+
+	if finalLines != initialLines {
+		t.Errorf("History changed! Initial lines: %d, Final lines: %d. Diff: \n%s", initialLines, finalLines, histOut2.String())
+	}
+}

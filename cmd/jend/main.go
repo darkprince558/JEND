@@ -29,6 +29,7 @@ func main() {
 	var textContent string
 	var isText bool
 	var noClipboard bool
+	var noHistory bool
 	var args []string
 
 	// Poor man's flag parsing to avoid rearranging all args
@@ -44,6 +45,8 @@ func main() {
 			autoUnzip = true
 		} else if arg == "--no-clipboard" {
 			noClipboard = true
+		} else if arg == "--no-history" || arg == "--incognito" {
+			noHistory = true
 		} else if arg == "--timeout" {
 			if i+1 < len(os.Args) {
 				timeoutStr = os.Args[i+1]
@@ -96,13 +99,13 @@ func main() {
 		if !isText {
 			filePath = args[1]
 		}
-		startSender(filePath, textContent, isText, headless, timeout, forceTar, forceZip)
+		startSender(filePath, textContent, isText, headless, timeout, forceTar, forceZip, noHistory)
 	case "receive":
 		if len(args) < 2 {
 			fmt.Println("Usage: jend receive <code>")
 			os.Exit(1)
 		}
-		startReceiver(args[1], headless, outputDir, autoUnzip, noClipboard)
+		startReceiver(args[1], headless, outputDir, autoUnzip, noClipboard, noHistory)
 	case "history":
 		if len(args) > 1 {
 			if args[1] == "--clear" {
@@ -124,7 +127,7 @@ func main() {
 	}
 }
 
-func startSender(filePath string, textContent string, isText bool, headless bool, timeout time.Duration, forceTar, forceZip bool) {
+func startSender(filePath string, textContent string, isText bool, headless bool, timeout time.Duration, forceTar, forceZip bool, noHistory bool) {
 	// Generate Code (3 words)
 	code := petname.Generate(3, "-")
 
@@ -146,7 +149,7 @@ func startSender(filePath string, textContent string, isText bool, headless bool
 
 	if headless {
 		fmt.Printf("Code: %s\n", code)
-		core.RunSender(ctx, nil, ui.RoleSender, filePath, textContent, isText, code, timeout, forceTar, forceZip)
+		core.RunSender(ctx, nil, ui.RoleSender, filePath, textContent, isText, code, timeout, forceTar, forceZip, noHistory)
 	} else {
 		// Init UI
 		var displayName string
@@ -164,7 +167,7 @@ func startSender(filePath string, textContent string, isText bool, headless bool
 		// Transfer Logic
 		go func() {
 			defer wg.Done()
-			core.RunSender(ctx, p, ui.RoleSender, filePath, textContent, isText, code, timeout, forceTar, forceZip)
+			core.RunSender(ctx, p, ui.RoleSender, filePath, textContent, isText, code, timeout, forceTar, forceZip, noHistory)
 		}()
 
 		if _, err := p.Run(); err != nil {
@@ -181,17 +184,17 @@ func startSender(filePath string, textContent string, isText bool, headless bool
 	}
 }
 
-func startReceiver(code string, headless bool, outputDir string, autoUnzip bool, noClipboard bool) {
+func startReceiver(code string, headless bool, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool) {
 	if headless {
 		// Headless Mode
-		core.RunReceiver(nil, code, outputDir, autoUnzip, noClipboard)
+		core.RunReceiver(nil, code, outputDir, autoUnzip, noClipboard, noHistory)
 	} else {
 		model := ui.NewModel(ui.RoleReceiver, "", code)
 		p := tea.NewProgram(model)
 
 		// Transfer Logic
 		go func() {
-			core.RunReceiver(p, code, outputDir, autoUnzip, noClipboard)
+			core.RunReceiver(p, code, outputDir, autoUnzip, noClipboard, noHistory)
 			p.Quit()
 		}()
 

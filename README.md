@@ -91,6 +91,11 @@ Keep track of every file you send or receive.
 # View transfer history
 jend history
 
+# Send without recording to history (Incognito Mode)
+jend send --incognito secret.txt
+# Receive without recording to history
+jend receive --no-history <code>
+
 # View detailed proof for a specific transfer
 jend history partial-red-panda
 

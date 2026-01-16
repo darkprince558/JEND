@@ -29,7 +29,7 @@ import (
 )
 
 // RunReceiver handles the main receiving logic
-func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool) {
+func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -69,17 +69,19 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 			}
 		}
 
-		audit.WriteEntry(audit.LogEntry{
-			Timestamp: startTime,
-			Role:      "receiver",
-			Code:      code,
-			FileName:  filepath.Base(outputDir), // Rough approximation or update later
-			FileSize:  fileSize,
-			FileHash:  fileHash,
-			Status:    status,
-			Error:     errMsg,
-			Duration:  time.Since(startTime).Seconds(),
-		})
+		if !noHistory {
+			audit.WriteEntry(audit.LogEntry{
+				Timestamp: startTime,
+				Role:      "receiver",
+				Code:      code,
+				FileName:  filepath.Base(outputDir), // Rough approximation or update later
+				FileSize:  fileSize,
+				FileHash:  fileHash,
+				Status:    status,
+				Error:     errMsg,
+				Duration:  time.Since(startTime).Seconds(),
+			})
+		}
 
 		if p == nil && exitCode != 0 {
 			os.Exit(exitCode)

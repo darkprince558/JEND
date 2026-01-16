@@ -32,30 +32,29 @@ const (
 )
 
 // RunSender handles the main sending logic
-func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, timeout time.Duration, forceTar, forceZip bool) {
+func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, timeout time.Duration, forceTar, forceZip bool, noHistory bool) {
+	startTime := time.Now()
+	var finalErr error
+	var fileSize int64
+	var fileHash string
+
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
 		} else {
+			// Headless fallback
 			switch m := msg.(type) {
 			case ui.ErrorMsg:
 				fmt.Println("Error:", m)
-				// os.Exit(1) handled in defer
 			case ui.StatusMsg:
 				fmt.Println("Status:", m)
 			case ui.ProgressMsg:
-				if m.TotalBytes > 0 && m.SentBytes == m.TotalBytes {
+				if m.SentBytes == m.TotalBytes && m.TotalBytes > 0 {
 					fmt.Println("Done!")
 				}
 			}
 		}
 	}
-
-	startTime := time.Now()
-	var finalErr error
-	var fileHash string
-	var fileSize int64
-	var exitCode int
 
 	// Audit Log Defer
 	defer func() {
@@ -65,25 +64,20 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			status = "success"
 		} else {
 			errMsg = finalErr.Error()
-			if p == nil {
-				exitCode = 1
-			}
 		}
 
-		audit.WriteEntry(audit.LogEntry{
-			Timestamp: startTime,
-			Role:      "sender",
-			FileName:  filepath.Base(filePath),
-			FileSize:  fileSize,
-			FileHash:  fileHash,
-			Code:      code,
-			Status:    status,
-			Error:     errMsg,
-			Duration:  time.Since(startTime).Seconds(),
-		})
-
-		if p == nil && exitCode != 0 {
-			os.Exit(exitCode)
+		if !noHistory {
+			audit.WriteEntry(audit.LogEntry{
+				Timestamp: startTime,
+				Role:      "sender",
+				Code:      code,
+				FileName:  filepath.Base(filePath),
+				FileSize:  fileSize,
+				FileHash:  fileHash,
+				Status:    status,
+				Error:     errMsg,
+				Duration:  time.Since(startTime).Seconds(),
+			})
 		}
 	}()
 
