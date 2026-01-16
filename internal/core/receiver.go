@@ -29,7 +29,7 @@ import (
 )
 
 // RunReceiver handles the main receiving logic
-func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) {
+func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -143,7 +143,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 		}
 
 		// Handle Session
-		done, size, hash, err := handleReceiveSession(stream, code, outputDir, autoUnzip, sendMsg)
+		done, size, hash, err := handleReceiveSession(stream, code, outputDir, autoUnzip, noClipboard, sendMsg)
 		fileSize = size
 		fileHash = hash // approximate, might be partial if failed, but better than empty
 
@@ -178,6 +178,7 @@ func handleReceiveSession(
 	code string,
 	outputDir string,
 	autoUnzip bool,
+	noClipboard bool,
 	sendMsg func(tea.Msg),
 ) (bool, int64, string, error) {
 	var fileSize int64
@@ -394,10 +395,14 @@ func handleReceiveSession(
 			if meta.Type == "text" {
 				content := textBuf.String()
 				fmt.Printf("\nReceived Text:\n%s\n", content)
-				if err := clipboard.WriteAll(content); err == nil {
-					sendMsg(ui.StatusMsg("Text copied to clipboard!"))
+				if !noClipboard {
+					if err := clipboard.WriteAll(content); err == nil {
+						sendMsg(ui.StatusMsg("Text copied to clipboard!"))
+					} else {
+						sendMsg(ui.StatusMsg("Failed to copy to clipboard"))
+					}
 				} else {
-					sendMsg(ui.StatusMsg("Failed to copy to clipboard"))
+					sendMsg(ui.StatusMsg("Clipboard copy skipped (--no-clipboard)"))
 				}
 				return true, fileSize, meta.Hash, nil
 			}
@@ -428,7 +433,9 @@ func handleReceiveSession(
 		if meta.Type == "text" {
 			content := textBuf.String()
 			fmt.Printf("\nReceived Text:\n%s\n", content)
-			clipboard.WriteAll(content)
+			if !noClipboard {
+				clipboard.WriteAll(content)
+			}
 			return true, fileSize, "", nil
 		}
 

@@ -450,3 +450,86 @@ func TestTextTransfer(t *testing.T) {
 		t.Errorf("Receiver created files in text mode! Found: %v", files)
 	}
 }
+
+func TestNoClipboard(t *testing.T) {
+	// Setup
+	tmpDir := t.TempDir()
+	outDir := filepath.Join(tmpDir, "output")
+	os.MkdirAll(outDir, 0755)
+
+	textContent := "Sensitive Data - Do Not Copy"
+
+	// Build Binary
+	binaryPath := filepath.Join(tmpDir, "jend_test_noclip")
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "../cmd/jend")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build binary: %v", err)
+	}
+
+	// Start Sender
+	senderCmd := exec.Command(binaryPath, "send", "--text", textContent, "--headless", "--timeout", "10s")
+	var senderStdout bytes.Buffer
+	senderCmd.Stdout = &senderStdout
+
+	if err := senderCmd.Start(); err != nil {
+		t.Fatalf("Failed to start sender: %v", err)
+	}
+	defer func() {
+		if senderCmd.Process != nil {
+			senderCmd.Process.Kill()
+		}
+	}()
+
+	// Wait for code
+	time.Sleep(2 * time.Second)
+	output := senderStdout.String()
+	marker := "Code: "
+	idx := strings.Index(output, marker)
+	if idx == -1 {
+		t.Fatalf("Sender didn't print code. Output: %s", output)
+	}
+	code := strings.TrimSpace(output[idx+len(marker):])
+	code = strings.Fields(code)[0]
+	t.Logf("Got Code: %s", code)
+
+	// Start Receiver WITH --no-clipboard
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--no-clipboard")
+	var receiverStdout bytes.Buffer
+	receiverCmd.Stdout = &receiverStdout
+
+	if err := receiverCmd.Start(); err != nil {
+		t.Fatalf("Failed to start receiver: %v", err)
+	}
+
+	// Wait for completion
+	done := make(chan error, 1)
+	go func() {
+		done <- receiverCmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Receiver failed: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Receiver timed out")
+	}
+
+	// Check Output
+	recvOutput := receiverStdout.String()
+	t.Logf("Receiver Output: %s", recvOutput)
+
+	if !strings.Contains(recvOutput, "Received Text:") {
+		t.Error("Receiver output missing 'Received Text:' header")
+	}
+	if !strings.Contains(recvOutput, textContent) {
+		t.Errorf("Receiver output missing content: %s", textContent)
+	}
+	if strings.Contains(recvOutput, "Text copied to clipboard!") {
+		t.Error("Receiver copied to clipboard despite --no-clipboard flag!")
+	}
+	if !strings.Contains(recvOutput, "Clipboard copy skipped (--no-clipboard)") {
+		t.Error("Receiver output missing skip message")
+	}
+}

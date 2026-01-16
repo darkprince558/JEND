@@ -28,6 +28,7 @@ func main() {
 	autoUnzip := false
 	var textContent string
 	var isText bool
+	var noClipboard bool
 	var args []string
 
 	// Poor man's flag parsing to avoid rearranging all args
@@ -41,6 +42,8 @@ func main() {
 			forceZip = true
 		} else if arg == "--unzip" {
 			autoUnzip = true
+		} else if arg == "--no-clipboard" {
+			noClipboard = true
 		} else if arg == "--timeout" {
 			if i+1 < len(os.Args) {
 				timeoutStr = os.Args[i+1]
@@ -99,7 +102,7 @@ func main() {
 			fmt.Println("Usage: jend receive <code>")
 			os.Exit(1)
 		}
-		startReceiver(args[1], headless, outputDir, autoUnzip)
+		startReceiver(args[1], headless, outputDir, autoUnzip, noClipboard)
 	case "history":
 		if len(args) > 1 {
 			if args[1] == "--clear" {
@@ -178,15 +181,19 @@ func startSender(filePath string, textContent string, isText bool, headless bool
 	}
 }
 
-func startReceiver(code string, headless bool, outputDir string, autoUnzip bool) {
+func startReceiver(code string, headless bool, outputDir string, autoUnzip bool, noClipboard bool) {
 	if headless {
-		core.RunReceiver(nil, code, outputDir, autoUnzip)
+		// Headless Mode
+		core.RunReceiver(nil, code, outputDir, autoUnzip, noClipboard)
 	} else {
 		model := ui.NewModel(ui.RoleReceiver, "", code)
 		p := tea.NewProgram(model)
 
 		// Transfer Logic
-		go core.RunReceiver(p, code, outputDir, autoUnzip)
+		go func() {
+			core.RunReceiver(p, code, outputDir, autoUnzip, noClipboard)
+			p.Quit()
+		}()
 
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)

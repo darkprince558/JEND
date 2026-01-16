@@ -67,6 +67,7 @@ Take full control over how your files are packaged.
     ```
 *   `--tar`: Force tar.gz compression.
 *   `--unzip`: Receiver flag to automatically extract archives upon arrival.
+*   `--no-clipboard`: Disable automatic clipboard copying (useful for sensitive data).
 
 ### Headless & Automation
 Perfect for DevOps. Run JEND without the UI in your background scripts.
