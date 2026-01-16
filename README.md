@@ -6,10 +6,11 @@ JEND is a modern, high-speed file transfer tool designed for the command line. I
 
 ## Why Jend?
 
-*   **Blazing Fast**: Built on **QUIC**, the same protocol powering HTTP/3. Fast connection establishment and no head-of-line blocking.
-*   **Secure by Default**: Uses **PAKE** (Password-Authenticated Key Exchange). We never see your files. Encryption keys are generated ephemerally and wiped after transfer.
-*   **Smart Handling**: Sending a folder? JEND automatically bundles it into a `.tar.gz`. Receiving one? A simple `--unzip` flag handles extraction.
-*   **Automation Ready**: Full headless mode for CI/CD pipelines, cron jobs, and scripts.
+*   **Blazing Fast**: Built on **QUIC**, providing fast connection establishment and eliminating head-of-line blocking.
+*   **Secure by Default**: Uses **PAKE** (Password-Authenticated Key Exchange) for secure, ephemeral encryption. No data is stored on intermediaries.
+*   **Resilient**: Automatic network discovery (mDNS) finds peers on your LAN instantly. Transfers automatically resume if the connection drops.
+*   **Smart Handling**: Archives directories automatically. Supports `tar.gz` and `zip`. Handling small text snippets? Use the new text mode.
+*   **Automation Ready**: Headless mode supported for CI/CD and scripts.
 
 ---
 
@@ -46,6 +47,14 @@ jend receive amaze-tiger-bravo
 jend --unzip receive amaze-tiger-bravo
 ```
 
+### 3. Send Text
+Quickly share a URL or code snippet without creating a file.
+
+```bash
+jend send --text "https://github.com/darkprince558/jend"
+# Receiver will print the text and copy it to the clipboard
+```
+
 ---
 
 ## Power User Features
@@ -66,10 +75,14 @@ Perfect for DevOps. Run JEND without the UI in your background scripts.
 jend --headless --timeout 5m send backup.db
 ```
 
+### Resilience & Resume
+*   **Auto-Resume**: If the network drops, JEND pauses and waits. Once connectivity is restored, the transfer resumes automatically from where it left off.
+*   **Cancellation**: Sender interruption (Ctrl+C) instantly notifies the receiver to stop, preventing partial file corruption or infinite retries.
+
 ### Safety First
-*   **Integrity Check**: Every transfer is verified with a SHA-256 checksum to ensure bit-perfect delivery.
-*   **Path Sanitization**: Automatic protection against Zip Slip attacks.
-*   **Timeout**: Transfers automatically expire if not accepted within the timeout window (default 10m).
+*   **Integrity Check**: Every transfer is verified with a SHA-256 checksum.
+*   **Path Sanitization**: Protection against Zip Slip attacks.
+*   **Timeout**: Transfers expire if not accepted within the default 10-minute window.
 
 ### Audit Trail
 Keep track of every file you send or receive.
@@ -88,16 +101,14 @@ jend history --clear
 
 ## Coming Soon (Roadmap)
 
-We are actively building the ultimate transfer tool. Here is what's next:
+We are actively improving JEND. Planned features include:
 
-*   **Network Intelligence**:
-    *   **Smart Discovery**: Hybrid mDNS (LAN) + P2P Hole Punching + Relay Fallback.
-    *   **IPv6 Support**: First-class citizen support.
-*   **"Resume Features"**:
-    *   **Auto-Resume**: Interruptions will just pause, not fail.
-    *   **Parallel Streaming**: Splitting large files for max bandwidth.
-    *   **Bandwidth Throttling**: Limits via `--limit 5MB/s`.
-*   **New Modes**:
+*   **Advanced Networking**:
+    *   **P2P Hole Punching / Relay**: Fallback mechanisms for complex network topologies (e.g. across different NATs).
+    *   **IPv6 Support**: Full IPv6 compatibility.
+*   **Performance**:
+    *   **Parallel Streaming**: Splitting large files for maximum bandwidth utilization.
+    *   **Bandwidth Throttling**: User-defined speed limits.
     *   **Clientless Web Receive**: Receive files directly in a browser.
     *   **Dead Drop**: Encrypted async upload for offline receivers.
     *   **Ghost Mode**: Force relay usage for absolute IP privacy.
