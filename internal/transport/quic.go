@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"math/big"
 
+	"time"
+
 	"github.com/quic-go/quic-go"
 )
 
@@ -34,7 +36,12 @@ func (t *QUICTransport) Listen(port string) (*quic.Listener, error) {
 		return nil, err
 	}
 
-	listener, err := quic.ListenAddr(":"+port, tlsConf, nil)
+	quicConfig := &quic.Config{
+		MaxIdleTimeout:  5 * time.Second,
+		KeepAlivePeriod: 2 * time.Second,
+	}
+
+	listener, err := quic.ListenAddr(":"+port, tlsConf, quicConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen: %w", err)
 	}

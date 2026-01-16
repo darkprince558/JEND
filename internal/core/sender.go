@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,7 +31,7 @@ const (
 )
 
 // RunSender handles the main sending logic
-func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time.Duration, forceTar, forceZip bool) {
+func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, code string, timeout time.Duration, forceTar, forceZip bool) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -196,69 +197,141 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 		sendMsg(ui.StatusMsg("Broadcasting on local network..."))
 	}
 
-	// Wait for connection
+	// Wait for connection Loop
 	sendMsg(ui.StatusMsg(fmt.Sprintf("Waiting for receiver (timeout: %s)...", timeout)))
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	// State for resume
+	var currentOffset int64 = 0
 
-	conn, err := listener.Accept(ctx)
-	if err != nil {
-		finalErr = err
-		if ctx.Err() == context.DeadlineExceeded {
-			sendMsg(ui.ErrorMsg(fmt.Errorf("code has expired after %v of inactivity, please try again", timeout)))
-		} else {
-			sendMsg(ui.ErrorMsg(err))
+	for {
+		// Calculate remaining time
+		// If we are resumed, we probably want to extend or reset timeout?
+		// For now, strict total timeout.
+
+		if time.Since(startTime) > timeout {
+			finalErr = fmt.Errorf("session timed out")
+			sendMsg(ui.ErrorMsg(finalErr))
+			return
 		}
-		return
-	}
-	sendMsg(ui.StatusMsg("Receiver connected! Opening stream..."))
 
-	stream, err := conn.AcceptStream(context.Background())
-	if err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
+		// Check cancellation
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// Use Passed Context for Accept (handles cancellation)
+		acceptCtx, cancel := context.WithTimeout(ctx, timeout-time.Since(startTime))
+		conn, err := listener.Accept(acceptCtx)
+		cancel()
+
+		if err != nil {
+			// If context canceled (timeout or manual), we exit
+			if acceptCtx.Err() == context.Canceled {
+				// Manual Cancellation
+				return
+			}
+			if acceptCtx.Err() == context.DeadlineExceeded {
+				// Only error if we haven't finished finding someone at least once?
+				// Or fail completely if no successful transfer.
+
+				// If we are in the middle of a transfer (some bytes sent), maybe let it slide?
+				// But we rely on listener.Accept() returning.
+
+				finalErr = fmt.Errorf("code has expired or connection lost")
+				sendMsg(ui.ErrorMsg(finalErr))
+				return // Timeout
+			}
+			finalErr = err
+			sendMsg(ui.ErrorMsg(err))
+			return
+		}
+
+		sendMsg(ui.StatusMsg("Receiver connected! Opening stream..."))
+
+		stream, err := conn.AcceptStream(context.Background())
+		if err != nil {
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Connection failed: %v. Waiting for retry...", err)))
+			conn.CloseWithError(0, "stream failed")
+			continue
+		}
+
+		// Handle this connection in a sub-function or block
+		done, err := handleConnection(ctx, stream, file, info, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg)
+		if done {
+			// Transfer Complete
+			return
+		}
+
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				sendMsg(ui.StatusMsg("Closing connection (cancelled)..."))
+				conn.CloseWithError(0, "transfer cancelled by sender")
+				stream.Close()
+				return
+			}
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Connection lost (%v). Waiting for resume...", err)))
+			conn.CloseWithError(0, "interrupted")
+			stream.Close() // Ensure cleanup
+			// Continue loop -> Accept new connection
+		}
 	}
+}
+
+// handleConnection encapsulates the logic for a single connection attempt
+// Returns (done bool, err error). If done is true, the outer loop should exit (success).
+func handleConnection(
+	ctx context.Context,
+	stream io.ReadWriter,
+	file *os.File,
+	info os.FileInfo,
+	fileName string,
+	code string,
+	currentOffset int64,
+	fileSize int64,
+	startTime time.Time,
+	startModTime time.Time,
+	sendMsg func(tea.Msg),
+) (bool, error) {
 
 	// PAKE Authentication
 	// We need to export performPAKE or move it here. Moving it to common would be best, but for now copying logic/making helper.
 	// Assume PerformPAKE is available in core.
 	sendMsg(ui.StatusMsg("Authenticating..."))
 	if err := PerformPAKE(stream, code, 0); err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(fmt.Errorf("authentication failed: %v", err)))
-		return
+		return false, fmt.Errorf("authentication failed: %v", err)
 	}
 	sendMsg(ui.StatusMsg("Authenticated! Handshaking..."))
 
 	// Calculate Code Hash
+	// Re-calculating hash every time is expensive for large files.
+	// Optimization: Calculate once outside logic.
+	// For now, let's keep it but ideally we pass it in.
+	// Actually we can't easily pass it in without refactoring outer scope heavily.
+	// But since file is locked, we can cache it?
+	// Let's do it simple: Calculate again. (Performance Hit on Resume, but safe)
+
 	sendMsg(ui.StatusMsg("Calculating checksum..."))
 	hasher := sha256.New()
+	if _, err := file.Seek(0, 0); err != nil {
+		return false, err
+	}
 	if _, err := io.Copy(hasher, file); err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
+		return false, err
 	}
-	fileHash = fmt.Sprintf("%x", hasher.Sum(nil))
-	if _, err := file.Seek(0, 0); err != nil { // Reset file pointer
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
-	}
+	fileHash := fmt.Sprintf("%x", hasher.Sum(nil))
 
 	// Handshake
 	meta := map[string]interface{}{
 		"name": fileName,
-		"size": info.Size(),
+		"size": fileSize,
 		"code": code,
 		"hash": fileHash,
 	}
 	metaBytes, _ := json.Marshal(meta)
 	if err := protocol.EncodeHeader(stream, protocol.TypeHandshake, uint32(len(metaBytes))); err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
+		return false, err
 	}
 	stream.Write(metaBytes)
 
@@ -266,53 +339,49 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 	sendMsg(ui.StatusMsg("Handshake sent. Waiting for ACK..."))
 	pType, length, err := protocol.DecodeHeader(stream)
 	if err != nil || pType != protocol.TypeAck {
-		finalErr = fmt.Errorf("handshake failed: %v", err)
-		sendMsg(ui.ErrorMsg(finalErr))
-		return
+		return false, fmt.Errorf("handshake failed: %v", err)
 	}
 
 	// Read Offset (Resume logic)
 	var offset int64 = 0
 	if length == 8 {
 		if err := binary.Read(stream, binary.LittleEndian, &offset); err != nil {
-			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
-			return
+			return false, err
 		}
 		if offset > 0 {
 			sendMsg(ui.StatusMsg(fmt.Sprintf("Resuming transfer from %d bytes...", offset)))
-			if _, err := file.Seek(offset, 0); err != nil {
-				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
-				return
-			}
 		}
 	} else if length > 0 {
 		// Consume unknown payload
 		io.CopyN(io.Discard, stream, int64(length))
 	}
 
+	if _, err := file.Seek(offset, 0); err != nil {
+		return false, err
+	}
+
 	// Send Data
 	sendMsg(ui.StatusMsg("Sending data..."))
 	buf := make([]byte, ChunkSize)
-	var totalSent int64 = offset // Start tracking from offset
-
-	// startTime := time.Now() // Already set at top
-	// Adjust start time to reflect already "sent" bytes for speed calc?
-	// Or just calc speed based on new bytes. Let's do new bytes for current speed.
+	var totalSent int64 = offset
 
 	for {
+		// Check Cancellation
+		select {
+		case <-ctx.Done():
+			sendMsg(ui.StatusMsg("Stopping transfer (User Cancelled)..."))
+			protocol.EncodeHeader(stream, protocol.TypeCancel, 0)
+			return false, ctx.Err()
+		default:
+		}
+
 		n, err := file.Read(buf)
 		if n > 0 {
 			if err := protocol.EncodeHeader(stream, protocol.TypeData, uint32(n)); err != nil {
-				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
-				return
+				return false, err
 			}
 			if _, err := stream.Write(buf[:n]); err != nil {
-				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
-				return
+				return false, err
 			}
 			totalSent += int64(n)
 
@@ -322,13 +391,13 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 			if elapsed > 0 {
 				speed = float64(totalSent) / elapsed
 				if speed > 0 {
-					eta = time.Duration(float64(info.Size()-totalSent)/speed) * time.Second
+					eta = time.Duration(float64(fileSize-totalSent)/speed) * time.Second
 				}
 			}
 
 			sendMsg(ui.ProgressMsg{
 				SentBytes:  totalSent,
-				TotalBytes: info.Size(),
+				TotalBytes: fileSize,
 				Speed:      speed,
 				ETA:        eta,
 				Protocol:   "QUIC (Direct)",
@@ -338,35 +407,19 @@ func RunSender(p *tea.Program, role ui.Role, filePath, code string, timeout time
 			break
 		}
 		if err != nil {
-			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
-			return
-		}
-	}
-
-	stream.Close()
-
-	// Final Integrity Check: Did file change?
-	// Only for normal files, simpler logic for now.
-	if !info.IsDir() && !forceTar && !forceZip {
-		if newInfo, err := os.Stat(filePath); err == nil {
-			if !newInfo.ModTime().Equal(startModTime) {
-				msg := "WARNING: File was modified during transfer! Integrity compromised."
-				sendMsg(ui.StatusMsg(msg))
-				// Also log this in audit?
-				// finalErr = fmt.Errorf("file modified during transfer") // If we want to mark as failed
-			}
+			return false, err
 		}
 	}
 
 	sendMsg(ui.ProgressMsg{
-		SentBytes:  info.Size(),
-		TotalBytes: info.Size(),
+		SentBytes:  fileSize,
+		TotalBytes: fileSize,
 		Speed:      0,
 		ETA:        0,
 		Protocol:   "Done",
 	})
-	time.Sleep(time.Second)
+	time.Sleep(time.Second) // Give receiver time to flush
+	return true, nil
 }
 
 func CompressPath(filePath string, format string) (string, error) {

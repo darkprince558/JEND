@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/darkprince558/jend/internal/audit"
@@ -109,21 +113,47 @@ func startSender(filePath string, headless bool, timeout time.Duration, forceTar
 	// Copy to Clipboard
 	clipboard.WriteAll(code) // Ignore error, just try best effort
 
+	// Context for cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle Signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		// fmt.Println("\nStopping sender...") // UI handles stdout usually, but in headless this is good
+		cancel()
+	}()
+
 	if headless {
 		fmt.Printf("Code: %s\n", code)
-		core.RunSender(nil, ui.RoleSender, filePath, code, timeout, forceTar, forceZip)
+		core.RunSender(ctx, nil, ui.RoleSender, filePath, code, timeout, forceTar, forceZip)
 	} else {
 		// Init UI
 		model := ui.NewModel(ui.RoleSender, filepath.Base(filePath), code)
 		p := tea.NewProgram(model)
 
+		var wg sync.WaitGroup
+		wg.Add(1)
+
 		// Transfer Logic
-		go core.RunSender(p, ui.RoleSender, filePath, code, timeout, forceTar, forceZip)
+		go func() {
+			defer wg.Done()
+			core.RunSender(ctx, p, ui.RoleSender, filePath, code, timeout, forceTar, forceZip)
+		}()
 
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
+
+		// When TUI exits, cancel context to stop sender
+		cancel()
+		// Wait brief moment for cleanup/packet send
+		// Wait in background or block? Block is fine as we are exiting.
+		// fmt.Println("Cleaning up...")
+		wg.Wait()
 	}
 }
 

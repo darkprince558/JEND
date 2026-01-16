@@ -12,6 +12,7 @@ const (
 	TypeData      = 2 // File chunk data
 	TypeAck       = 3 // Acknowledgment of receipt
 	TypeError     = 4 // Error signal
+	TypeCancel    = 5 // Sender cancellation signal
 )
 
 // PacketHeader represents the fixed-size header for every packet

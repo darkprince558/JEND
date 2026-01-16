@@ -99,44 +99,104 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 		sendMsg(ui.StatusMsg("Discovery timed out, trying localhost..."))
 	}
 
-	sendMsg(ui.StatusMsg("Dialing " + address + "..."))
-	conn, err := tr.Dial(address) // TODO: Make address configurable
-	if err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
-	}
-	sendMsg(ui.StatusMsg("Connected! Opening stream..."))
+	// Main Receiver Loop
+	// We will attempt to authenticate and resume until complete or fatal error
 
-	stream, err := conn.OpenStreamSync(context.Background())
-	if err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
+	retryCount := 0
+	maxRetries := 10 // Global retries for connection establishment
+
+	for {
+		// Discovery Logic (Simplified: try once then use last known IP or localhost)
+		// ... (Existing discovery logic)
+		// For loop simplicity, we'll just dial 'address' which was resolved earlier
+		// or re-resolve if needed.
+
+		// If address is empty or we want to re-discover:
+		// (Ideally move discovery inside loop, but for now stick to address)
+
+		sendMsg(ui.StatusMsg("Dialing " + address + "..."))
+		conn, err := tr.Dial(address)
+		if err != nil {
+			retryCount++
+			if retryCount > maxRetries {
+				finalErr = err
+				sendMsg(ui.ErrorMsg(fmt.Errorf("max retries exceeded: %v", err)))
+				return
+			}
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Connection failed. Retrying in %d seconds...", retryCount)))
+			time.Sleep(time.Duration(retryCount) * time.Second)
+			continue
+		}
+
+		// Reset retry count on successful dial
+		retryCount = 0
+		sendMsg(ui.StatusMsg("Connected! Opening stream..."))
+
+		stream, err := conn.OpenStreamSync(context.Background())
+		if err != nil {
+			sendMsg(ui.ErrorMsg(fmt.Errorf("failed to open stream: %v", err)))
+			conn.CloseWithError(0, "stream open failed")
+			time.Sleep(time.Second)
+			continue
+		}
+
+		// Handle Session
+		done, size, hash, err := handleReceiveSession(stream, code, outputDir, autoUnzip, sendMsg)
+		fileSize = size
+		fileHash = hash // approximate, might be partial if failed, but better than empty
+
+		if done {
+			// Success!
+			return
+		}
+
+		if err != nil {
+			// Check for cancellation
+			if strings.Contains(err.Error(), "transfer cancelled by sender") {
+				finalErr = err
+				sendMsg(ui.ErrorMsg(err))
+				return
+			}
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Transfer interrupted (%v). Retrying...", err)))
+			stream.Close()
+			// Close connection if not already closed
+			// QUIC connection Closing is handled by CloseWithError mostly, but Close() works too.
+			// quic-go's Connection interface has CloseWithError, not Close.
+			// But our Transport wrapper returns quic.Connection which has CloseWithError.
+			conn.CloseWithError(0, "interrupted")
+			time.Sleep(time.Second)
+			continue
+		}
 	}
+}
+
+// handleReceiveSession encapsulates the logic for a single resume attempt
+func handleReceiveSession(
+	stream io.ReadWriter,
+	code string,
+	outputDir string,
+	autoUnzip bool,
+	sendMsg func(tea.Msg),
+) (bool, int64, string, error) {
+	var fileSize int64
+	var fileHash string
 
 	// PAKE Authentication
 	sendMsg(ui.StatusMsg("Authenticating..."))
 	if err := PerformPAKE(stream, code, 1); err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(fmt.Errorf("authentication failed: %v", err)))
-		return
+		return false, 0, "", fmt.Errorf("authentication failed: %v", err)
 	}
 	sendMsg(ui.StatusMsg("Authenticated! Waiting for handshake..."))
 
 	// Read Handshake
 	pType, length, err := protocol.DecodeHeader(stream)
 	if err != nil || pType != protocol.TypeHandshake {
-		finalErr = fmt.Errorf("invalid handshake")
-		sendMsg(ui.ErrorMsg(finalErr))
-		return
+		return false, 0, "", fmt.Errorf("invalid handshake")
 	}
 
 	metaBytes := make([]byte, length)
 	if _, err := io.ReadFull(stream, metaBytes); err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
+		return false, 0, "", err
 	}
 
 	var meta struct {
@@ -146,9 +206,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 		Hash string `json:"hash"`
 	}
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
+		return false, 0, "", err
 	}
 	fileSize = meta.Size
 	// Update audit log filename if we have it now
@@ -177,14 +235,10 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	}
 
 	if err := protocol.EncodeHeader(stream, protocol.TypeAck, 8); err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
+		return false, fileSize, "", err
 	}
 	if err := binary.Write(stream, binary.LittleEndian, offset); err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
+		return false, fileSize, "", err
 	}
 
 	sendMsg(ui.StatusMsg("Receiving " + safeName))
@@ -192,9 +246,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	// Ensure output directory exists (optional, but good practice)
 	if outputDir != "." {
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			finalErr = err
-			sendMsg(ui.ErrorMsg(fmt.Errorf("failed to create output dir: %w", err)))
-			return
+			return false, fileSize, "", fmt.Errorf("failed to create output dir: %w", err)
 		}
 	}
 
@@ -208,16 +260,14 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	}
 
 	if err != nil {
-		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
-		return
+		return false, fileSize, "", err
 	}
 	defer outFile.Close()
 
 	// Receive Loop
 	buf := make([]byte, ChunkSize)
 	var totalRecv int64 = offset
-	startTime = time.Now()
+	startTime := time.Now()
 
 	hasher := sha256.New()
 
@@ -225,15 +275,11 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 	if offset > 0 {
 		existingFile, err := os.Open(partialPath)
 		if err != nil {
-			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
-			return
+			return false, fileSize, "", err
 		}
 		if _, err := io.CopyN(hasher, existingFile, offset); err != nil {
-			finalErr = err
 			existingFile.Close()
-			sendMsg(ui.ErrorMsg(err))
-			return
+			return false, fileSize, "", err
 		}
 		existingFile.Close()
 	}
@@ -246,9 +292,15 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 			if err == io.EOF {
 				break
 			}
-			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
-			return
+			// If we received all data but connection dropped (e.g. sender closed improperly or timed out), treat as success
+			if totalRecv == meta.Size {
+				break
+			}
+			return false, fileSize, "", err
+		}
+
+		if pType == protocol.TypeCancel {
+			return false, fileSize, "", fmt.Errorf("transfer cancelled by sender")
 		}
 
 		if pType == protocol.TypeData {
@@ -257,9 +309,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 				buf = make([]byte, length)
 			}
 			if _, err := io.ReadFull(stream, buf[:length]); err != nil {
-				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
-				return
+				return false, fileSize, "", err
 			}
 			mw.Write(buf[:length])
 			totalRecv += int64(length)
@@ -285,7 +335,11 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 		}
 	}
 
-	stream.Close()
+	// Close stream using type assertion if needed, or rely on connection close.
+	// io.ReadWriter doesn't have Close.
+	if c, ok := stream.(io.Closer); ok {
+		c.Close()
+	}
 	sendMsg(ui.ProgressMsg{
 		SentBytes:  meta.Size,
 		TotalBytes: meta.Size,
@@ -318,17 +372,13 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 			}
 
 			if err := os.Rename(partialPath, finalPath); err != nil {
-				finalErr = err
-				sendMsg(ui.ErrorMsg(fmt.Errorf("failed to save final file: %v", err)))
-				return
+				return false, fileSize, "", fmt.Errorf("failed to save final file: %v", err)
 			}
 			fileHash = meta.Hash // Set hash for audit log only on success
 			sendMsg(ui.StatusMsg("Saved to: " + filepath.Base(finalPath)))
 
 		} else {
-			finalErr = fmt.Errorf("integrity check failed")
-			sendMsg(ui.ErrorMsg(fmt.Errorf("Integrity Check: FAILED (Expected %s, Got %s). Keeping .partial file.", meta.Hash, recvHash)))
-			return
+			return false, fileSize, "", fmt.Errorf("Integrity Check: FAILED (Expected %s, Got %s).", meta.Hash, recvHash)
 		}
 	} else {
 		// No hash provided, just move it (risky but consistent with old logic)
@@ -346,17 +396,13 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 			// Re-open the file
 			f, err := os.Open(finalPath)
 			if err != nil {
-				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
-				return
+				return true, fileSize, fileHash, err // Return true because transfer succeeded, unzip failed
 			}
 			defer f.Close()
 
 			gzr, err := gzip.NewReader(f)
 			if err != nil {
-				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
-				return
+				return true, fileSize, fileHash, err
 			}
 			defer gzr.Close()
 
@@ -368,9 +414,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 					break
 				}
 				if err != nil {
-					finalErr = err
-					sendMsg(ui.ErrorMsg(err))
-					return
+					return true, fileSize, fileHash, err
 				}
 
 				// Zip Slip Protection
@@ -382,22 +426,16 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 
 				if header.Typeflag == tar.TypeDir {
 					if err := os.MkdirAll(target, 0755); err != nil {
-						finalErr = err
-						sendMsg(ui.ErrorMsg(err))
-						return
+						return true, fileSize, fileHash, err
 					}
 				} else if header.Typeflag == tar.TypeReg {
 					f, err := os.Create(target)
 					if err != nil {
-						finalErr = err
-						sendMsg(ui.ErrorMsg(err))
-						return
+						return true, fileSize, fileHash, err
 					}
 					if _, err := io.Copy(f, tr); err != nil {
 						f.Close()
-						finalErr = err
-						sendMsg(ui.ErrorMsg(err))
-						return
+						return true, fileSize, fileHash, err
 					}
 					f.Close()
 				}
@@ -410,9 +448,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 			// zip.OpenReader requires random access, safe since we have the file on disk
 			zr, err := zip.OpenReader(finalPath)
 			if err != nil {
-				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
-				return
+				return true, fileSize, fileHash, err
 			}
 			defer zr.Close()
 
@@ -430,38 +466,30 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool) 
 				}
 
 				if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
-					finalErr = err
-					sendMsg(ui.ErrorMsg(err))
-					return
+					return true, fileSize, fileHash, err
 				}
 
 				outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 				if err != nil {
-					finalErr = err
-					sendMsg(ui.ErrorMsg(err))
-					return
+					return true, fileSize, fileHash, err
 				}
 
 				rc, err := f.Open()
 				if err != nil {
 					outFile.Close()
-					finalErr = err
-					sendMsg(ui.ErrorMsg(err))
-					return
+					return true, fileSize, fileHash, err
 				}
 
 				_, err = io.Copy(outFile, rc)
 				outFile.Close()
 				rc.Close()
 				if err != nil {
-					finalErr = err
-					sendMsg(ui.ErrorMsg(err))
-					return
+					return true, fileSize, fileHash, err
 				}
 			}
-			sendMsg(ui.StatusMsg("Extracted successfully!"))
 		}
 	}
+	return true, fileSize, fileHash, nil
 }
 
 func PerformPAKE(stream io.ReadWriter, password string, role int) error {
