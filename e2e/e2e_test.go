@@ -53,6 +53,7 @@ func TestFileTransfer(t *testing.T) {
 	// Start Sender
 	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless")
 	senderOut, err := senderCmd.StdoutPipe()
+	senderCmd.Stderr = os.Stderr
 	if err != nil {
 		t.Fatalf("Failed to get sender stdout: %v", err)
 	}
@@ -72,10 +73,13 @@ func TestFileTransfer(t *testing.T) {
 		for scanner.Scan() {
 			line := scanner.Text()
 			// Log for debugging
-			t.Logf("[Sender] %s", line)
+			fmt.Printf("[Sender] %s\n", line)
 			if strings.HasPrefix(line, "Code: ") {
-				codeCh <- strings.TrimPrefix(line, "Code: ")
-				return
+				select {
+				case codeCh <- strings.TrimPrefix(line, "Code: "):
+				default:
+				}
+				// Don't return, keep logging
 			}
 		}
 	}()
@@ -90,8 +94,14 @@ func TestFileTransfer(t *testing.T) {
 
 	// Start Receiver
 	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
-	if out, err := receiverCmd.CombinedOutput(); err != nil {
-		t.Fatalf("Receiver failed: %v\nOutput: %s", err, out)
+	receiverCmd.Stdout = os.Stdout
+	receiverCmd.Stderr = os.Stderr
+	if err := receiverCmd.Start(); err != nil {
+		t.Fatalf("Failed to start receiver: %v", err)
+	}
+
+	if err := receiverCmd.Wait(); err != nil {
+		t.Fatalf("Receiver failed: %v", err)
 	}
 
 	// Wait for Sender to finish

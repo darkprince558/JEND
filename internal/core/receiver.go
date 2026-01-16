@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -553,16 +554,15 @@ func handleReceiveSession(
 }
 
 func PerformPAKE(stream io.ReadWriter, password string, role int) error {
-	// Simple Challenge-Response Auth
+	// Custom Robust Mutual Authentication (replacing crashing schollz/pake)
 	// Role 0 = Sender (Verifier), Role 1 = Receiver (Prover/Client)
+	// Uses HMAC-SHA256 with Salt and Session Nonce.
 
-	// Step 0: Sync Stream (Client speaks first to trigger AcceptStream on Server)
+	// Step 0: Sync Stream (Receiver speaks first to trigger AcceptStream on Server)
 	if role == 1 { // Receiver
 		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, 0); err != nil {
 			return err
 		}
-		// Write empty PAKE packet as "Hello"
-		// Header (5 bytes) is enough to trigger stream
 	} else { // Sender
 		// Sender waits for Hello
 		pType, _, err := protocol.DecodeHeader(stream)
@@ -574,73 +574,138 @@ func PerformPAKE(stream io.ReadWriter, password string, role int) error {
 		}
 	}
 
-	if role == 0 { // Sender: Verify the Receiver knows the code
-		// 1. Generate Challenge
-		challenge := make([]byte, 32)
-		if _, err := rand.Read(challenge); err != nil {
+	// 1. Salt Exchange (Sender generates Salt)
+	var salt []byte
+	if role == 0 { // Sender
+		salt = make([]byte, 16)
+		if _, err := io.ReadFull(rand.Reader, salt); err != nil {
 			return err
 		}
-
-		// 2. Send Challenge
-		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, 32); err != nil {
+		// Send Salt
+		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, uint32(len(salt))); err != nil {
 			return err
 		}
-		if _, err := stream.Write(challenge); err != nil {
+		if _, err := stream.Write(salt); err != nil {
 			return err
 		}
-
-		// 3. Read Response
+	} else { // Receiver
+		// Read Salt
 		pType, length, err := protocol.DecodeHeader(stream)
 		if err != nil {
 			return err
 		}
 		if pType != protocol.TypePAKE {
-			return fmt.Errorf("expected auth response")
+			return fmt.Errorf("expected salt")
 		}
-		resp := make([]byte, length)
-		if _, err := io.ReadFull(stream, resp); err != nil {
+		salt = make([]byte, length)
+		if _, err := io.ReadFull(stream, salt); err != nil {
 			return err
 		}
-
-		// 4. Verify
-		// Expected = SHA256(Challenge + Password)
-		blob := append(challenge, []byte(password)...)
-		expected := sha256.Sum256(blob)
-
-		if subtle.ConstantTimeCompare(resp, expected[:]) != 1 {
-			return fmt.Errorf("invalid code")
-		}
-		return nil
-
-	} else { // Receiver: Prove we know the code
-		// 1. Read Challenge
-		pType, length, err := protocol.DecodeHeader(stream)
-		if err != nil {
-			return err
-		}
-		if pType != protocol.TypePAKE {
-			return fmt.Errorf("expected auth challenge")
-		}
-		challenge := make([]byte, length)
-		if _, err := io.ReadFull(stream, challenge); err != nil {
-			return err
-		}
-
-		// 2. Compute Response
-		blob := append(challenge, []byte(password)...)
-		hash := sha256.Sum256(blob)
-
-		// 3. Send Response
-		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, uint32(len(hash))); err != nil {
-			return err
-		}
-		if _, err := stream.Write(hash[:]); err != nil {
-			return err
-		}
-
 	}
+
+	// 2. Derive Session Key K = SHA256(Password + Salt)
+	// In production, use Argon2 or Scrypt. Here using SHA256 for simplicity/speed in prototype.
+	keyHash := sha256.Sum256(append([]byte(password), salt...))
+	K := keyHash[:]
+
+	// 3. Mutual Challenge-Response
+	// Sender generates Random Nonce N
+	var nonce []byte
+	if role == 0 { // Sender
+		nonce = make([]byte, 32)
+		if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+			return err
+		}
+		// Send Nonce
+		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, uint32(len(nonce))); err != nil {
+			return err
+		}
+		if _, err := stream.Write(nonce); err != nil {
+			return err
+		}
+	} else { // Receiver
+		// Read Nonce
+		pType, length, err := protocol.DecodeHeader(stream)
+		if err != nil {
+			return err
+		}
+		if pType != protocol.TypePAKE {
+			return fmt.Errorf("expected nonce")
+		}
+		nonce = make([]byte, length)
+		if _, err := io.ReadFull(stream, nonce); err != nil {
+			return err
+		}
+	}
+
+	// 4. Receiver Authenticates First (sends HMAC(K, "client" + Nonce))
+	clientTag := computeHMAC(K, append([]byte("client"), nonce...))
+
+	if role == 1 { // Receiver sends proof
+		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, uint32(len(clientTag))); err != nil {
+			return err
+		}
+		if _, err := stream.Write(clientTag); err != nil {
+			return err
+		}
+	} else { // Sender verifies proof
+		pType, length, err := protocol.DecodeHeader(stream)
+		if err != nil {
+			return err
+		}
+		if pType != protocol.TypePAKE {
+			return fmt.Errorf("expected client proof")
+		}
+		gotTag := make([]byte, length)
+		if _, err := io.ReadFull(stream, gotTag); err != nil {
+			return err
+		}
+		if subtle.ConstantTimeCompare(gotTag, clientTag) != 1 {
+			return fmt.Errorf("authentication failed: wrong password")
+		}
+	}
+
+	// 5. Sender Authenticates (sends HMAC(K, "server" + Nonce))
+	serverTag := computeHMAC(K, append([]byte("server"), nonce...))
+
+	if role == 0 { // Sender sends proof
+		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, uint32(len(serverTag))); err != nil {
+			return err
+		}
+		if _, err := stream.Write(serverTag); err != nil {
+			return err
+		}
+	} else { // Receiver verifies proof
+		pType, length, err := protocol.DecodeHeader(stream)
+		if err != nil {
+			return err
+		}
+		if pType != protocol.TypePAKE {
+			return fmt.Errorf("expected server proof")
+		}
+		gotTag := make([]byte, length)
+		if _, err := io.ReadFull(stream, gotTag); err != nil {
+			return err
+		}
+		if subtle.ConstantTimeCompare(gotTag, serverTag) != 1 {
+			return fmt.Errorf("server authentication failed")
+		}
+	}
+
 	return nil
 }
+
+func computeHMAC(key, data []byte) []byte {
+	// Import crypto/hmac needed?
+	// Or use simple SHA256 for now? Receiver.go imports sha256.
+	// We need HMAC. import "crypto/hmac"
+	h := hmac.New(sha256.New, key)
+	h.Write(data)
+	return h.Sum(nil)
+}
+
+// verifySessionKey removed as it is integrated above
+// Ensure crypto/hmac and crypto/rand are imported
 
 type nopCloser struct {
 	io.Writer
