@@ -1,6 +1,20 @@
 #!/bin/bash
 set -e
 
+RUN_DOCKER=false
+
+# Parse Arguments
+for arg in "$@"; do
+    case $arg in
+        --docker)
+            RUN_DOCKER=true
+            shift
+            ;;
+        *)
+            ;;
+    esac
+done
+
 echo "========================================"
 echo "   JEND Test Runner"
 echo "========================================"
@@ -23,6 +37,19 @@ echo "[*] Running E2E Tests (this may take a minute)..."
 # -v for verbose output to see progress
 # -count=1 to disable caching and force a fresh run
 go test -v -count=1 ./e2e
+
+# 4. Optional: Docker Tests
+if [ "$RUN_DOCKER" = true ]; then
+    echo ""
+    echo "[*] Running Docker E2E Tests..."
+    if [ -f "./e2e/docker/test_runner.sh" ]; then
+        chmod +x ./e2e/docker/test_runner.sh
+        ./e2e/docker/test_runner.sh
+    else
+        echo "Error: Docker test runner not found at ./e2e/docker/test_runner.sh"
+        exit 1
+    fi
+fi
 
 echo ""
 echo "========================================"

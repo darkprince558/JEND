@@ -1,0 +1,30 @@
+
+services:
+  sender:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/Dockerfile
+    container_name: jend-sender
+    command: sh -c "echo 'Starting Sender...' && jend send /app/e2e/test_data/payload.txt --headless --no-history > /app/sender_output.log 2>&1"
+    volumes:
+      - ../..:/app
+    networks:
+      - jend-net
+
+  receiver:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/Dockerfile
+    container_name: jend-receiver
+    # Receiver waits for a code file supplied by the runner script
+    command: sh -c "while [ ! -f /app/transfer_code.txt ]; do sleep 1; done; CODE=\$(cat /app/transfer_code.txt); echo \"Receiving with code \$CODE\"; jend receive \$CODE --dir /app/output --headless --no-history"
+    volumes:
+      - ../..:/app
+    depends_on:
+      - sender
+    networks:
+      - jend-net
+
+networks:
+  jend-net:
+    driver: bridge
