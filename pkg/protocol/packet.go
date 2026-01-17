@@ -13,6 +13,7 @@ const (
 	TypeAck       = 3 // Acknowledgment of receipt
 	TypeError     = 4 // Error signal
 	TypeCancel    = 5 // Sender cancellation signal
+	TypeRangeReq  = 6 // Parallel stream range request
 )
 
 // PacketHeader represents the fixed-size header for every packet

@@ -23,6 +23,7 @@ import (
 	"github.com/darkprince558/jend/internal/transport"
 	"github.com/darkprince558/jend/internal/ui"
 	"github.com/darkprince558/jend/pkg/protocol"
+	"github.com/quic-go/quic-go"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/darkprince558/jend/internal/audit"
@@ -146,7 +147,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 		}
 
 		// Handle Session
-		done, size, hash, err := handleReceiveSession(stream, code, outputDir, autoUnzip, noClipboard, sendMsg)
+		done, size, hash, err := handleReceiveSession(conn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg)
 		fileSize = size
 		fileHash = hash // approximate, might be partial if failed, but better than empty
 
@@ -177,6 +178,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 
 // handleReceiveSession encapsulates the logic for a single resume attempt
 func handleReceiveSession(
+	conn *quic.Conn,
 	stream io.ReadWriter,
 	code string,
 	outputDir string,
@@ -187,7 +189,7 @@ func handleReceiveSession(
 	var fileSize int64
 	var fileHash string
 
-	// PAKE Authentication
+	// PAKE Authentication (on Control Stream)
 	sendMsg(ui.StatusMsg("Authenticating..."))
 	if err := PerformPAKE(stream, code, 1); err != nil {
 		return false, 0, "", fmt.Errorf("authentication failed: %v", err)
@@ -205,21 +207,11 @@ func handleReceiveSession(
 		return false, 0, "", err
 	}
 
-	var meta struct {
-		Name string `json:"name"`
-		Size int64  `json:"size"`
-		Code string `json:"code"`
-		Hash string `json:"hash"`
-		Type string `json:"type"`
-	}
+	var meta FileMeta
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
 		return false, 0, "", err
 	}
 	fileSize = meta.Size
-	// Update audit log filename if we have it now
-	// Ideally we could update the struct in the defer, referencing variables.
-	// Since we use closure variables, setting fileName var (if we had one) would work.
-	// But we initialized log entry in defer. I'll add a fileName var in the scope.
 
 	// Handle Text Mode
 	if meta.Type == "text" {
@@ -232,24 +224,32 @@ func handleReceiveSession(
 		if meta.Size > limit {
 			return false, meta.Size, "", fmt.Errorf("text content too large (>1MB)")
 		}
-
-		// We can't use ReadFull directly if it's chunked via TypeData...
-		// Wait, the protocol sends TypeData chunks. We reusing the loop?
-		// Reusing the loop logic is better than rewriting it.
-		// But the loop writes to mw (MultiWriter -> file + hasher).
-		// We can point mw to a bytes.Buffer instead of a file.
 	}
 
-	// Send Ack
-	// Check for existing partial file to resume
+	// Prepare Output
 	safeName := filepath.Base(meta.Name)
 	if safeName == "." || safeName == "/" {
 		safeName = "received_file"
 	}
 
-	// Strategy: Always download to .partial
-	// Resume checks .partial file
-	// On success, strip .partial and handle collisions
+	// Ensure output directory exists
+	if outputDir != "." {
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return false, fileSize, "", fmt.Errorf("failed to create output dir: %w", err)
+		}
+	}
+
+	// Decide on Parallel vs Sequential
+	// Threshold: 100MB
+	useParallel := meta.Size > 100*1024*1024 && meta.Type != "text"
+
+	if useParallel {
+		sendMsg(ui.StatusMsg(fmt.Sprintf("Large file detected (%d MB). Using 4 parallel streams...", meta.Size/1024/1024)))
+		return downloadParallel(conn, stream, meta, outputDir, safeName, sendMsg) // Call specialized function
+	}
+
+	// Fallback to Sequential (Original Logic)
+	// Send Ack
 	partialPath := filepath.Join(outputDir, safeName+".partial")
 	var offset int64 = 0
 
@@ -270,14 +270,16 @@ func handleReceiveSession(
 	}
 
 	sendMsg(ui.StatusMsg("Receiving " + safeName))
+	// ... rest of sequential logic follows in existing code ...
+	// Since I cannot replace "rest of code" easily without careful chunking,
+	// I will just let the function flow into the existing sequential logic
+	// if useParallel is false.
+	// However, I need to define downloadParallel helper or implement it inline.
+	// Inline is messier but tool-friendly.
+	// But wait, the sequential logic constructs 'outFile' and loops.
+	// My Previous replace ended at line 280 (directory check).
 
-	// Ensure output directory exists (optional, but good practice)
-	if outputDir != "." {
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			return false, fileSize, "", fmt.Errorf("failed to create output dir: %w", err)
-		}
-	}
-
+	// Continuation of Sequential Logic variables
 	var outFile io.WriteCloser
 	var textBuf *bytes.Buffer
 

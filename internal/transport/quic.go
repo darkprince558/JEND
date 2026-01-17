@@ -37,8 +37,9 @@ func (t *QUICTransport) Listen(port string) (*quic.Listener, error) {
 	}
 
 	quicConfig := &quic.Config{
-		MaxIdleTimeout:  5 * time.Second,
-		KeepAlivePeriod: 2 * time.Second,
+		MaxIdleTimeout:     5 * time.Second,
+		KeepAlivePeriod:    2 * time.Second,
+		MaxIncomingStreams: 100,
 	}
 
 	listener, err := quic.ListenAddr(":"+port, tlsConf, quicConfig)

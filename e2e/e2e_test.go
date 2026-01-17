@@ -121,6 +121,84 @@ func TestFileTransfer(t *testing.T) {
 	}
 }
 
+// TestLargeFileTransfer verifies parallel streaming (triggers > 100MB logic)
+func TestLargeFileTransfer(t *testing.T) {
+	// Create large 150MB file
+	largeFileName := "large_test.bin"
+	f, err := os.Create(largeFileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write dummy data (fast)
+	// 150MB = 150 * 1024 * 1024
+	size := int64(150 * 1024 * 1024)
+	if err := f.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	defer os.Remove(largeFileName)
+	defer os.RemoveAll("received_large")
+
+	// Same setup as TestFileTransfer
+	// ... reusing sender/receiver logic but with large file
+	// Since the code is largely copy-paste, I'll invoke helper if possible
+	// or just run the sender/receiver commands.
+
+	// Start Sender
+	senderCmd := exec.Command(binaryPath, "send", largeFileName, "--headless", "--no-history", "--no-clipboard")
+	// Pipes...
+	senderReader, err := senderCmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	senderCmd.Stderr = os.Stderr // debug
+
+	if err := senderCmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if senderCmd.Process != nil {
+			senderCmd.Process.Kill()
+		}
+	}()
+
+	// Scan for Code
+	var code string
+	scanner := bufio.NewScanner(senderReader)
+	for scanner.Scan() {
+		line := scanner.Text()
+		t.Logf("[Sender] %s", line)
+		if strings.Contains(line, "Code:") {
+			parts := strings.Split(line, ":")
+			if len(parts) > 1 {
+				code = strings.TrimSpace(parts[1])
+				break
+			}
+		}
+	}
+	if code == "" {
+		t.Fatal("Failed to get code from sender")
+	}
+
+	// Start Receiver
+	time.Sleep(2 * time.Second) // Let sender init
+	recvCmd := exec.Command(binaryPath, "receive", code, "--headless", "--no-history", "--no-clipboard", "--dir", "received_large")
+	out, err := recvCmd.CombinedOutput()
+	t.Logf("[Receiver Output]:\n%s", string(out))
+	if err != nil {
+		t.Fatalf("Receiver failed: %v", err)
+	}
+
+	// Verify File
+	info, err := os.Stat(filepath.Join("received_large", largeFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != size {
+		t.Fatalf("Size mismatch. Want %d, Got %d", size, info.Size())
+	}
+}
+
 func TestAuditLog(t *testing.T) {
 	// This test depends on the side effect of TestFileTransfer or runs its own small transfer
 	// Run a small transfer
