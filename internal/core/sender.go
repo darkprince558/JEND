@@ -473,6 +473,12 @@ func handleConnection(
 		default:
 		}
 
+		// TEST HOOK: Slow down transfer for cancellation testing
+		if delay := os.Getenv("JEND_TEST_DELAY"); delay != "" {
+			d, _ := time.ParseDuration(delay)
+			time.Sleep(d)
+		}
+
 		// Calculate read size
 		readSize := ChunkSize
 		// We don't strictly need manual limiting if SectionReader is used, but good for chunking.

@@ -391,9 +391,9 @@ func TestSenderCancellation(t *testing.T) {
 	outDir := filepath.Join(tmpDir, "output")
 	os.MkdirAll(outDir, 0755)
 
-	// Create a large file (so we have time to cancel)
+	// Create a smaller file (10MB is enough with delay)
 	f, _ := os.Create(srcFile)
-	f.Seek(100*1024*1024, 0) // 100MB
+	f.Seek(10*1024*1024, 0) // 10MB
 	f.Write([]byte{0})
 	f.Close()
 
@@ -405,8 +405,9 @@ func TestSenderCancellation(t *testing.T) {
 		t.Fatalf("Failed to build binary: %v", err)
 	}
 
-	// Start Sender
-	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "10s")
+	// Start Sender with Delay Env Var
+	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "30s")
+	senderCmd.Env = append(os.Environ(), "JEND_TEST_DELAY=100ms")
 	var senderStdout bytes.Buffer
 	senderCmd.Stdout = &senderStdout
 
@@ -445,7 +446,23 @@ func TestSenderCancellation(t *testing.T) {
 		}
 	}()
 
-	// Wait for transfer to start
+	// Wait for Handshake to complete (Checksum done)
+	// We scan sender output for "Handshake sent"
+	readyToCancel := false
+	deadline := time.Now().Add(20 * time.Second) // Allow time for hashing 5GB
+	for time.Now().Before(deadline) {
+		if strings.Contains(senderStdout.String(), "Handshake sent") {
+			readyToCancel = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !readyToCancel {
+		t.Logf("Sender Output: %s", senderStdout.String())
+		t.Fatal("Timeout waiting for sender to finish hashing/handshake")
+	}
+
+	// Give it a tiny moment to start data phase
 	time.Sleep(500 * time.Millisecond)
 
 	// Interrupt Sender
@@ -554,6 +571,166 @@ func TestTextTransfer(t *testing.T) {
 	files, _ := os.ReadDir(outDir)
 	if len(files) > 0 {
 		t.Errorf("Receiver created files in text mode! Found: %v", files)
+	}
+}
+
+func TestBinaryFileTransfer(t *testing.T) {
+	// Setup
+	tmpDir := t.TempDir()
+	outDir := filepath.Join(tmpDir, "output")
+	os.MkdirAll(outDir, 0755)
+
+	// Create a binary file (mixture of ranges)
+	srcFile := filepath.Join(tmpDir, "binary.dat")
+	size := 10 * 1024 * 1024 // 10MB
+	content := make([]byte, size)
+	// Fill with random-ish data (predictable for replay)
+	for i := range content {
+		content[i] = byte((i * 37) % 256)
+	}
+	if err := os.WriteFile(srcFile, content, 0644); err != nil {
+		t.Fatalf("Failed to create binary file: %v", err)
+	}
+
+	// Build Binary
+	binaryPath := filepath.Join(tmpDir, "jend_test_bin")
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "../cmd/jend")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build binary: %v", err)
+	}
+
+	// Start Sender
+	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "30s")
+	var senderStdout bytes.Buffer
+	senderCmd.Stdout = &senderStdout
+
+	if err := senderCmd.Start(); err != nil {
+		t.Fatalf("Failed to start sender: %v", err)
+	}
+
+	// Ensure we kill the sender eventually
+	defer func() {
+		if senderCmd.Process != nil {
+			senderCmd.Process.Kill()
+		}
+	}()
+
+	// Wait for code
+	time.Sleep(2 * time.Second)
+	output := senderStdout.String()
+	marker := "Code: "
+	idx := strings.Index(output, marker)
+	if idx == -1 {
+		t.Fatalf("Sender didn't print code. Output: %s", output)
+	}
+	code := strings.TrimSpace(output[idx+len(marker):])
+	code = strings.Fields(code)[0]
+	t.Logf("Got Code: %s", code)
+
+	// Start Receiver
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	if out, err := receiverCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Receiver failed: %v\nOutput: %s", err, out)
+	}
+
+	// Explicitly kill sender now that receiver is done (since sender loops)
+	senderCmd.Process.Signal(os.Interrupt)
+	senderCmd.Wait()
+
+	// Verify Content
+	destFile := filepath.Join(outDir, "binary.dat")
+	got, err := os.ReadFile(destFile)
+	if err != nil {
+		t.Fatalf("Failed to read received file: %v", err)
+	}
+
+	if !bytes.Equal(got, content) {
+		t.Fatal("Binary content mismatch! Transfer corrupted.")
+	}
+}
+
+func TestMP4Transfer(t *testing.T) {
+	// Setup
+	tmpDir := t.TempDir()
+	outDir := filepath.Join(tmpDir, "output")
+	os.MkdirAll(outDir, 0755)
+
+	// Download a real MP4 file
+	// Using a reliable sample URL (Big Buck Bunny, ~1-2MB)
+	url := "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4"
+	srcFile := filepath.Join(tmpDir, "sample.mp4")
+
+	t.Logf("Downloading sample MP4 from %s...", url)
+	// We use http.Get to download
+	// Note: We need 'net/http' and 'io'
+	// Since I cannot add imports easily without analyzing the file, I will rely on existing imports or add them if missing.
+	// But 'net/http' is likely not imported in e2e_test.go. I should check imports first or use curl via exec.
+	// Using curl is safer and cleaner here given imports management cost.
+
+	err := exec.Command("curl", "-L", "-o", srcFile, url).Run()
+	if err != nil {
+		t.Skipf("Failed to download sample MP4 (internet required): %v", err)
+	}
+
+	// Read content for verification
+	content, err := os.ReadFile(srcFile)
+	if err != nil {
+		t.Fatalf("Failed to read downloaded file: %v", err)
+	}
+	t.Logf("Downloaded %d bytes", len(content))
+
+	// Build Binary
+	binaryPath := filepath.Join(tmpDir, "jend_test_mp4")
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "../cmd/jend")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build binary: %v", err)
+	}
+
+	// Start Sender
+	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "60s")
+	var senderStdout bytes.Buffer
+	senderCmd.Stdout = &senderStdout
+
+	if err := senderCmd.Start(); err != nil {
+		t.Fatalf("Failed to start sender: %v", err)
+	}
+	defer func() {
+		if senderCmd.Process != nil {
+			senderCmd.Process.Kill()
+		}
+	}()
+
+	// Wait for code
+	time.Sleep(3 * time.Second) // Give a bit more time for file hashing if needed
+	output := senderStdout.String()
+	marker := "Code: "
+	idx := strings.Index(output, marker)
+	if idx == -1 {
+		t.Fatalf("Sender didn't print code. Output: %s", output)
+	}
+	code := strings.TrimSpace(output[idx+len(marker):])
+	code = strings.Fields(code)[0]
+	t.Logf("Got Code: %s", code)
+
+	// Start Receiver
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	if out, err := receiverCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Receiver failed: %v\nOutput: %s", err, out)
+	}
+
+	// Kill Sender
+	senderCmd.Process.Signal(os.Interrupt)
+	senderCmd.Wait()
+
+	// Verify Content
+	destFile := filepath.Join(outDir, "sample.mp4")
+	got, err := os.ReadFile(destFile)
+	if err != nil {
+		t.Fatalf("Failed to read received file: %v", err)
+	}
+
+	if !bytes.Equal(got, content) {
+		t.Fatal("MP4 content mismatch! Transfer corrupted.")
 	}
 }
 
