@@ -112,13 +112,6 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 	maxRetries := 10 // Global retries for connection establishment
 
 	for {
-		// Discovery Logic (Simplified: try once then use last known IP or localhost)
-		// ... (Existing discovery logic)
-		// For loop simplicity, we'll just dial 'address' which was resolved earlier
-		// or re-resolve if needed.
-
-		// If address is empty or we want to re-discover:
-		// (Ideally move discovery inside loop, but for now stick to address)
 
 		sendMsg(ui.StatusMsg("Dialing " + address + "..."))
 		conn, err := tr.Dial(address)
@@ -166,9 +159,6 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 			sendMsg(ui.StatusMsg(fmt.Sprintf("Transfer interrupted (%v). Retrying...", err)))
 			stream.Close()
 			// Close connection if not already closed
-			// QUIC connection Closing is handled by CloseWithError mostly, but Close() works too.
-			// quic-go's Connection interface has CloseWithError, not Close.
-			// But our Transport wrapper returns quic.Connection which has CloseWithError.
 			conn.CloseWithError(0, "interrupted")
 			time.Sleep(time.Second)
 			continue
@@ -270,14 +260,6 @@ func handleReceiveSession(
 	}
 
 	sendMsg(ui.StatusMsg("Receiving " + safeName))
-	// ... rest of sequential logic follows in existing code ...
-	// Since I cannot replace "rest of code" easily without careful chunking,
-	// I will just let the function flow into the existing sequential logic
-	// if useParallel is false.
-	// However, I need to define downloadParallel helper or implement it inline.
-	// Inline is messier but tool-friendly.
-	// But wait, the sequential logic constructs 'outFile' and loops.
-	// My Previous replace ended at line 280 (directory check).
 
 	// Continuation of Sequential Logic variables
 	var outFile io.WriteCloser
@@ -698,16 +680,10 @@ func PerformPAKE(stream io.ReadWriter, password string, role int) error {
 }
 
 func computeHMAC(key, data []byte) []byte {
-	// Import crypto/hmac needed?
-	// Or use simple SHA256 for now? Receiver.go imports sha256.
-	// We need HMAC. import "crypto/hmac"
 	h := hmac.New(sha256.New, key)
 	h.Write(data)
 	return h.Sum(nil)
 }
-
-// verifySessionKey removed as it is integrated above
-// Ensure crypto/hmac and crypto/rand are imported
 
 type nopCloser struct {
 	io.Writer

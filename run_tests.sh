@@ -9,6 +9,7 @@ echo "========================================"
 echo "[*] Cleaning up any stale jend processes..."
 pkill -f "jend" || true
 pkill -f "jend_test" || true
+sleep 2 # Ensure ports are released
 
 # 2. Run Unit Tests (Root and internal packages, excluding e2e)
 echo ""

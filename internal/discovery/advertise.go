@@ -9,11 +9,7 @@ import (
 // StartAdvertising announces the JEND service on the local network.
 // It returns a shutdown function that should be called when advertising is no longer needed.
 func StartAdvertising(port int, code string) (func(), error) {
-	// Instance name can be anything distinctive.
-	// We use the Code Hash as the TXT record to verify intent,
-	// but we can also put it in the instance name for easier debugging/visibility.
-	// Let's use "JendSender-<Hash[:8]>"
-
+	// Instance name: "JendSender-<Hash[:8]>"
 	codeHash := ComputeHash(code)
 	instanceName := fmt.Sprintf("JendSender-%s", codeHash[:8])
 

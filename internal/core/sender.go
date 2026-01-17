@@ -39,6 +39,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	var fileSize int64
 	var fileHash string
 
+	// Helper for sending messages to UI or stdout
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -164,7 +165,6 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			fileLock := flock.New(filePath)
 			locked, err := fileLock.TryLock()
 			if err != nil {
-				// Lock failed (permission/system error), just warn
 				sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Could not enable file lock: %v", err)))
 			} else if !locked {
 				// File is busy
@@ -188,7 +188,6 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	defer cleanup()
 
 	// Start Listener
-	// Note: We need to pass the transport or create it. For now creating new.
 	tr := transport.NewQUICTransport()
 	listener, err := tr.Listen(Port)
 	if err != nil {
@@ -198,7 +197,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	}
 
 	// Start Advertising
-	stopAdvertising, err := discovery.StartAdvertising(9000, code) // TODO: Dynamic Port
+	stopAdvertising, err := discovery.StartAdvertising(9000, code)
 	if err != nil {
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to advertise on network: %v", err)))
 	} else {
@@ -213,10 +212,6 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	var currentOffset int64 = 0
 
 	for {
-		// Calculate remaining time
-		// If we are resumed, we probably want to extend or reset timeout?
-		// For now, strict total timeout.
-
 		if time.Since(startTime) > timeout {
 			finalErr = fmt.Errorf("session timed out")
 			sendMsg(ui.ErrorMsg(finalErr))
@@ -238,19 +233,12 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		if err != nil {
 			// If context canceled (timeout or manual), we exit
 			if acceptCtx.Err() == context.Canceled {
-				// Manual Cancellation
 				return
 			}
 			if acceptCtx.Err() == context.DeadlineExceeded {
-				// Only error if we haven't finished finding someone at least once?
-				// Or fail completely if no successful transfer.
-
-				// If we are in the middle of a transfer (some bytes sent), maybe let it slide?
-				// But we rely on listener.Accept() returning.
-
 				finalErr = fmt.Errorf("code has expired or connection lost")
 				sendMsg(ui.ErrorMsg(finalErr))
-				return // Timeout
+				return
 			}
 			finalErr = err
 			sendMsg(ui.ErrorMsg(err))
@@ -299,15 +287,6 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			return
 		}
 		sendMsg(ui.StatusMsg("Session finished or disconnected."))
-		// Loop continues to accept NEW connection (Resume/Retry) if enabled
-		// For now, if we finished successfully, we might want to exit?
-		// But RunSender loop is infinite re-accept.
-		// If transfer is done?
-		// handleConnection doesn't return signal for "Global Done".
-		// We rely on User/Context Cancel or Timeout.
-		// Or if we assume one-shot transfer?
-		// Existing logic resumed until timeout.
-		// We can keep it running.
 	}
 }
 
@@ -338,13 +317,6 @@ func handleConnection(
 	}
 
 	// Calculate Code Hash
-	// Re-calculating hash every time is expensive for large files.
-	// Optimization: Calculate once outside logic.
-	// For now, let's keep it but ideally we pass it in.
-	// Actually we can't easily pass it in without refactoring outer scope heavily.
-	// But since file is locked, we can cache it?
-	// Let's do it simple: Calculate again. (Performance Hit on Resume, but safe)
-
 	sendMsg(ui.StatusMsg("Calculating checksum..."))
 	hasher := sha256.New()
 
@@ -432,8 +404,6 @@ func handleConnection(
 		dataReader = io.NewSectionReader(readerAt, offset, limit)
 	} else {
 		// Fallback for non-ReaderAt (e.g. stdin/text)
-		// NOTE: This will fail for parallel concurrent requests on non-seekable streams!
-		// But Text/Stdin is usually single stream.
 		if offset > 0 {
 			// Try to seek if possible
 			if seeker, ok := file.(io.Seeker); ok {
@@ -495,21 +465,10 @@ func handleConnection(
 				return false, err
 			}
 			totalSent += int64(n)
+
 			if bytesRemaining > 0 {
 				bytesRemaining -= int64(n)
 			}
-
-			// Only report progress from the "main" stream (or aggregate?)
-			// For simplicity, let's just let UI aggregate if possible, or only
-			// report from one.
-			// Actually, sender instances are per stream. The UI is shared via channel.
-			// The UI model sums up progress? No, currently UI expects one progression.
-			// This might clutter progress if 4 streams send updates.
-			// Ideally we use a shared atomic counter for totalSent across all streams
-			// and report that. But 'fileSize' is global.
-			// We can leave progress reporting here, it might just jump around or
-			// be additive if we fix the UI.
-			// For this task, saturation is key. UI can be refined.
 		}
 		if bytesRemaining == 0 {
 			break // Done with range

@@ -45,7 +45,7 @@ func FindSender(code string, timeout time.Duration) (string, error) {
 						// Match Found!
 						if len(entry.AddrIPv4) > 0 {
 							port := entry.Port
-							ip := entry.AddrIPv4[0] // Just take first IPv4
+							ip := entry.AddrIPv4[0]
 							return fmt.Sprintf("%s:%d", ip, port), nil
 						}
 					}
