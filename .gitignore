@@ -6,6 +6,7 @@
 *.dylib
 bin/
 jend
+jend_test_*
 
 # Logs and PIDs
 *.log
@@ -15,11 +16,16 @@ history.jsonl
 # Test output
 *.out
 testdir/
+output/
 output_*
+test_data/
+received_large/
 downloads/
 *_payload.txt
 test*.txt
 debug_code.txt
+*.bin
+*.mp4
 
 # OS Specific
 .DS_Store
