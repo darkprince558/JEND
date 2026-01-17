@@ -2,6 +2,7 @@ package audit
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	petname "github.com/dustinkirkland/golang-petname"
+	"github.com/gofrs/flock"
 )
 
 // LogEntry represents a single transfer event
@@ -51,139 +53,166 @@ func GetLogPath() (string, error) {
 	return filepath.Join(dir, "history.jsonl"), nil
 }
 
-// WriteEntry appends a log entry to the history file
-func WriteEntry(entry LogEntry) error {
-	path, err := GetLogPath()
+// getLockPath returns the path to the lock file
+func getLockPath() (string, error) {
+	logPath, err := GetLogPath()
+	if err != nil {
+		return "", err
+	}
+	return logPath + ".lock", nil
+}
+
+// withLock executes the given function with an exclusive file lock
+func withLock(action func() error) error {
+	lockPath, err := getLockPath()
 	if err != nil {
 		return err
 	}
 
-	// Ensure ID is set
-	if entry.ID == "" {
-		entry.ID = petname.Generate(2, "-") // Simple ID
+	fileLock := flock.New(lockPath)
+
+	// Try to lock with a timeout to avoid indefinite hanging
+	// 5 seconds should be plenty for even a slow rewrite
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	locked, err := fileLock.TryLockContext(ctx, 100*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
-	if entry.Timestamp.IsZero() {
-		entry.Timestamp = time.Now()
+	if !locked {
+		return fmt.Errorf("timed out waiting for history lock")
+	}
+	defer fileLock.Unlock()
+
+	return action()
+}
+
+// withReadLock executes the given function with a shared read lock
+func withReadLock(action func() error) error {
+	lockPath, err := getLockPath()
+	if err != nil {
+		return err
 	}
 
-	// Marshaling to JSON
-	// Marshaling to JSON
-	// data, err := json.Marshal(entry) // Removed, marshaling happens in else block
-	// if err != nil {
-	// 	return err
-	// }
+	fileLock := flock.New(lockPath)
 
-	// Prune if necessary (Keep last 1000)
-	// We do this by loading. It's not the most efficient for massive logs but fine for 1000 limit.
-	// Prune if necessary (Keep last 1000)
-	// We do this by loading. It's not the most efficient for massive logs but fine for 1000 limit.
-	entries, err := LoadHistory()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	// Determine if we need to prune/rewrite
-	// We strictly limit file to 1000.
-	// If existing >= 1000, we must rewrite.
-	// If existing < 1000, we can just append (optimization).
+	locked, err := fileLock.TryRLockContext(ctx, 100*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("failed to acquire read lock: %w", err)
+	}
+	if !locked {
+		return fmt.Errorf("timed out waiting for history read lock")
+	}
+	defer fileLock.Unlock()
 
-	if err == nil && len(entries) >= 1000 {
-		// Sort by timestamp is done in LoadHistory (Newest First)
-		// We insert current entry at top (assuming it is newest)
-		// Actually best to append and re-sort or just prepend since it's likely newest.
+	return action()
+}
 
-		all := append([]LogEntry{entry}, entries...)
-		// Resort to be safe if timestamps are messy, but usually unnecessary
-		sort.Slice(all, func(i, j int) bool {
-			return all[i].Timestamp.After(all[j].Timestamp)
-		})
-
-		// Keep top 1000
-		keep := all[:1000]
-
-		if err := RewriteHistory(keep); err != nil {
-			// Fallback? If rewrite fails, we might lose data or just fail.
-			return err
-		}
-	} else {
-		// Just append
-		// Open file in append mode
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-
-		data, err := json.Marshal(entry)
+// WriteEntry appends a log entry to the history file
+func WriteEntry(entry LogEntry) error {
+	return withLock(func() error {
+		path, err := GetLogPath()
 		if err != nil {
 			return err
 		}
 
-		if _, err := f.Write(append(data, '\n')); err != nil {
-			return err
+		// Ensure ID is set
+		if entry.ID == "" {
+			entry.ID = petname.Generate(2, "-") // Simple ID
 		}
-	}
-	return nil
+		if entry.Timestamp.IsZero() {
+			entry.Timestamp = time.Now()
+		}
+
+		// Prune if necessary (Keep last 1000)
+		entries, err := loadHistoryInternal(path)
+
+		// If log is large, prune
+		if err == nil && len(entries) >= 1000 {
+			all := append([]LogEntry{entry}, entries...)
+			// Re-sort
+			sort.Slice(all, func(i, j int) bool {
+				return all[i].Timestamp.After(all[j].Timestamp)
+			})
+
+			// Keep top 1000
+			keep := all[:1000]
+			return rewriteHistoryInternal(path, keep)
+		}
+
+		// Otherwise, just append
+		return appendEntryInternal(path, entry)
+	})
 }
 
 // RewriteHistory overwrites the log file with the provided entries
 func RewriteHistory(entries []LogEntry) error {
-	path, err := GetLogPath()
-	if err != nil {
-		return err
-	}
-
-	// Create/Truncate
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	// Entries are passed in Newest First (from LoadHistory),
-	// but typically we append logs Oldest First so that "tail" works naturally?
-	// Actually JSONL order doesn't strictly matter if we always load & sort.
-	// But appending usually implies chronological order.
-	// LoadHistory sorts Newest First. So we should reverse them if we want to restore file order.
-
-	for i := len(entries) - 1; i >= 0; i-- {
-		data, err := json.Marshal(entries[i])
+	return withLock(func() error {
+		path, err := GetLogPath()
 		if err != nil {
-			continue
+			return err
 		}
-		f.Write(append(data, '\n'))
-	}
-	return nil
+		return rewriteHistoryInternal(path, entries)
+	})
 }
 
 // ClearHistory deletes the history log file
 func ClearHistory() error {
-	path, err := GetLogPath()
-	if err != nil {
-		return err
-	}
-	return os.Remove(path)
+	return withLock(func() error {
+		path, err := GetLogPath()
+		if err != nil {
+			return err
+		}
+		return os.Remove(path)
+	})
 }
 
 // GetEntry finds a specific log entry by ID (prefix match supported)
 func GetEntry(id string) (LogEntry, error) {
-	entries, err := LoadHistory()
-	if err != nil {
-		return LogEntry{}, err
-	}
-
-	for _, e := range entries {
-		if strings.HasPrefix(e.ID, id) {
-			return e, nil
+	var found LogEntry
+	err := withReadLock(func() error {
+		path, err := GetLogPath()
+		if err != nil {
+			return err
 		}
-	}
-	return LogEntry{}, fmt.Errorf("entry not found")
+		entries, err := loadHistoryInternal(path)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if strings.HasPrefix(e.ID, id) {
+				found = e
+				return nil
+			}
+		}
+		return fmt.Errorf("entry not found")
+	})
+	return found, err
 }
 
 // LoadHistory reads all log entries from the history file
 func LoadHistory() ([]LogEntry, error) {
-	path, err := GetLogPath()
-	if err != nil {
-		return nil, err
-	}
+	var entries []LogEntry
+	err := withReadLock(func() error {
+		path, err := GetLogPath()
+		if err != nil {
+			return err
+		}
 
+		var loadErr error
+		entries, loadErr = loadHistoryInternal(path)
+		return loadErr
+	})
+	return entries, err
+}
+
+// Internal helpers (NO LOCKING)
+
+func loadHistoryInternal(path string) ([]LogEntry, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -209,6 +238,43 @@ func LoadHistory() ([]LogEntry, error) {
 	})
 
 	return entries, scanner.Err()
+}
+
+func rewriteHistoryInternal(path string, entries []LogEntry) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Reverse to write oldest first (if desired for append log style)
+	// But JSONL doesn't strictly require order.
+	for i := len(entries) - 1; i >= 0; i-- {
+		data, err := json.Marshal(entries[i])
+		if err != nil {
+			continue
+		}
+		if _, err := f.Write(append(data, '\n')); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func appendEntryInternal(path string, entry LogEntry) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+
+	_, err = f.Write(append(data, '\n'))
+	return err
 }
 
 // --- Display Logic ---

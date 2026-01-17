@@ -113,3 +113,51 @@ func TestEntryMarshaling(t *testing.T) {
 		t.Errorf("Expected ID %s, got %s", entry.ID, decoded.ID)
 	}
 }
+
+func TestConcurrentWrites(t *testing.T) {
+	// Setup temporary directory for testing
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "pru_history.jsonl")
+	SetLogPathOverride(logFile)
+	defer SetLogPathOverride("")
+
+	const numGoroutines = 10
+	const entriesPerGoroutine = 50
+
+	errCh := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			for j := 0; j < entriesPerGoroutine; j++ {
+				entry := LogEntry{
+					ID:        fmt.Sprintf("worker-%d-%d", id, j),
+					Timestamp: time.Now(),
+					Role:      "sender",
+					Status:    "success",
+				}
+				if err := WriteEntry(entry); err != nil {
+					errCh <- fmt.Errorf("worker %d failed: %v", id, err)
+					return
+				}
+			}
+			errCh <- nil
+		}(i)
+	}
+
+	for i := 0; i < numGoroutines; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Verify count
+	entries, err := LoadHistory()
+	if err != nil {
+		t.Fatalf("LoadHistory failed: %v", err)
+	}
+
+	expected := numGoroutines * entriesPerGoroutine
+	if len(entries) != expected {
+		t.Errorf("Expected %d entries, got %d", expected, len(entries))
+	}
+}
