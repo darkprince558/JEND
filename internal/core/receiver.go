@@ -245,7 +245,7 @@ func handleReceiveSession(
 
 	if useParallel {
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Large file detected (%d MB). Using 4 parallel streams...", meta.Size/1024/1024)))
-		return downloadParallel(conn, stream, meta, outputDir, safeName, sendMsg) // Call specialized function
+		return downloadParallel(conn, stream, meta, outputDir, safeName, sendMsg, code) // Call specialized function
 	}
 
 	// Fallback to Sequential (Original Logic)

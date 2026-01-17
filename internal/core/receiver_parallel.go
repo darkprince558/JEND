@@ -32,6 +32,7 @@ func downloadParallel(
 	outputDir string,
 	safeName string,
 	sendMsg func(tea.Msg),
+	password string,
 ) (bool, int64, string, error) {
 
 	// 1. Setup Output File
@@ -121,14 +122,20 @@ func downloadParallel(
 				defer ns.Close()
 				s = ns
 
-				// Consume Sender Handshake
-				// Sender sends Handshake immediately on AcceptStream (via handleConnection)
+				// Perform PAKE on new stream
+				// Note: Use same password. Role 1 (Receiver).
+				if err := PerformPAKE(s, password, 1); err != nil {
+					errChan <- fmt.Errorf("worker %d pake failed: %w", i, err)
+					return
+				}
+
+				// Consume Sender Handshake (sent after PAKE)
 				_, length, err := protocol.DecodeHeader(s)
 				if err != nil {
 					errChan <- err
 					return
 				}
-				io.CopyN(io.Discard, s, int64(length)) // Ignore metadata, we have it
+				io.CopyN(io.Discard, s, int64(length))
 			}
 
 			// Send Range Request

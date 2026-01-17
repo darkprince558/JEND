@@ -277,7 +277,14 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			wg.Add(1)
 			go func(s io.ReadWriter, first bool) {
 				defer wg.Done()
-				_, err := handleConnection(ctx, s, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg, !first)
+				// Ensure we close the stream when done so Receiver gets EOF
+				defer func() {
+					if c, ok := s.(io.Closer); ok {
+						c.Close()
+					}
+				}()
+
+				_, err := handleConnection(ctx, s, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg, false)
 				if err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "cancelled") {
 					// Log unexpected errors
 					// sendMsg(ui.ErrorMsg(err))
@@ -414,16 +421,34 @@ func handleConnection(
 		return false, fmt.Errorf("unexpected packet type: %d", pType)
 	}
 
-	if seeker, ok := file.(io.Seeker); ok {
-		if _, err := seeker.Seek(offset, 0); err != nil {
-			return false, err
+	// Parallel/Concurrent Read implementation using ReaderAt
+	var dataReader io.Reader
+	if readerAt, ok := file.(io.ReaderAt); ok {
+		// Use SectionReader for thread-safe concurrent access
+		limit := fileSize - offset
+		if byteLimit > 0 {
+			limit = byteLimit
 		}
-	} else if offset > 0 {
-		return false, fmt.Errorf("resume/seek not supported for this source")
+		dataReader = io.NewSectionReader(readerAt, offset, limit)
+	} else {
+		// Fallback for non-ReaderAt (e.g. stdin/text)
+		// NOTE: This will fail for parallel concurrent requests on non-seekable streams!
+		// But Text/Stdin is usually single stream.
+		if offset > 0 {
+			// Try to seek if possible
+			if seeker, ok := file.(io.Seeker); ok {
+				if _, err := seeker.Seek(offset, 0); err != nil {
+					return false, err
+				}
+			} else {
+				return false, fmt.Errorf("cannot seek in non-seekable source")
+			}
+		}
+		dataReader = file
 	}
 
 	// Send Data
-	// sendMsg(ui.StatusMsg("Sending data...")) // Too noisy if multiple streams?
+	// sendMsg(ui.StatusMsg("Sending data..."))
 	buf := make([]byte, ChunkSize)
 	var totalSent int64 = 0
 
@@ -431,7 +456,12 @@ func handleConnection(
 	var bytesRemaining int64 = -1
 	if byteLimit > 0 {
 		bytesRemaining = byteLimit
+	} else {
+		// limit for loop logic (if infinite)
 	}
+
+	// actually SectionReader handles EOF at limit automatically.
+	// So we can just read from dataReader until EOF.
 
 	for {
 		// Check Cancellation
@@ -445,11 +475,12 @@ func handleConnection(
 
 		// Calculate read size
 		readSize := ChunkSize
+		// We don't strictly need manual limiting if SectionReader is used, but good for chunking.
 		if bytesRemaining > 0 && int64(readSize) > bytesRemaining {
 			readSize = int(bytesRemaining)
 		}
 
-		n, err := file.Read(buf[:readSize])
+		n, err := dataReader.Read(buf[:readSize])
 		if n > 0 {
 			if err := protocol.EncodeHeader(stream, protocol.TypeData, uint32(n)); err != nil {
 				return false, err

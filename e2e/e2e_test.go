@@ -105,10 +105,12 @@ func TestFileTransfer(t *testing.T) {
 	}
 
 	// Wait for Sender to finish
-	// Sender should exit after transfer (or timeout if we changed logic to loop forever? No, it returns on done)
-	if err := senderCmd.Wait(); err != nil {
-		t.Fatalf("Sender exited with error: %v", err)
+	// Sender loops indefinitely now (Resume Support), so we must kill it.
+	if err := senderCmd.Process.Signal(os.Interrupt); err != nil {
+		senderCmd.Process.Kill()
 	}
+	// Wait for it to exit after signal
+	senderCmd.Wait()
 
 	// Verify Content
 	destFile := filepath.Join(outDir, "payload.txt")
@@ -183,9 +185,12 @@ func TestLargeFileTransfer(t *testing.T) {
 	// Start Receiver
 	time.Sleep(2 * time.Second) // Let sender init
 	recvCmd := exec.Command(binaryPath, "receive", code, "--headless", "--no-history", "--no-clipboard", "--dir", "received_large")
-	out, err := recvCmd.CombinedOutput()
-	t.Logf("[Receiver Output]:\n%s", string(out))
-	if err != nil {
+
+	// Pipe output to test stdout for live debugging
+	recvCmd.Stdout = os.Stdout
+	recvCmd.Stderr = os.Stderr
+
+	if err := recvCmd.Run(); err != nil {
 		t.Fatalf("Receiver failed: %v", err)
 	}
 
@@ -196,6 +201,12 @@ func TestLargeFileTransfer(t *testing.T) {
 	}
 	if info.Size() != size {
 		t.Fatalf("Size mismatch. Want %d, Got %d", size, info.Size())
+	}
+
+	// Kill Sender (it loops)
+	if senderCmd.Process != nil {
+		senderCmd.Process.Signal(os.Interrupt)
+		senderCmd.Wait()
 	}
 }
 
@@ -228,7 +239,12 @@ func TestAuditLog(t *testing.T) {
 
 	// Receiver
 	exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless").Run()
-	senderCmd.Wait()
+
+	// Kill Sender (it loops)
+	if senderCmd.Process != nil {
+		senderCmd.Process.Signal(os.Interrupt)
+		senderCmd.Wait()
+	}
 
 	// Verify Log
 	historyPath, _ := audit.GetLogPath()
@@ -262,9 +278,9 @@ func TestAuditLog(t *testing.T) {
 // TestResumeSupport verifies that the sender stays alive for multiple connections
 // and allows a receiver to resume.
 func TestResumeSupport(t *testing.T) {
-	// Setup Large File (1MB is enough to chunk)
+	// Setup Large File (50MB to ensure we can interrupt)
 	srcFile := "test_data/large_payload.bin"
-	size := 1024 * 1024 // 1MB
+	size := 50 * 1024 * 1024 // 50MB
 	content := make([]byte, size)
 	for i := range content {
 		content[i] = byte(i % 255)
@@ -309,13 +325,15 @@ func TestResumeSupport(t *testing.T) {
 	// We can't easily control exactly how many bytes...
 	// But we can start it asynchronously and kill it after 100ms.
 	receiverCmd1 := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	receiverCmd1.Stdout = os.Stdout
+	receiverCmd1.Stderr = os.Stderr
 	if err := receiverCmd1.Start(); err != nil {
 		t.Fatalf("Receiver 1 failed to start: %v", err)
 	}
 
 	// Let transfer start - Wait for partial file to ensure we are in data phase
 	partialPath := filepath.Join(outDir, "large_payload.bin.partial")
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	found := false
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(partialPath); err == nil {
