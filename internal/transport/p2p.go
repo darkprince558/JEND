@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 
 	"github.com/darkprince558/jend/internal/signaling"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -27,7 +28,7 @@ func NewP2PManager(sig *signaling.IoTClient, code string) *P2PManager {
 
 // EstablishConnection performs the ICE handshake to setup a P2P connection.
 // It acts as the Offerer if isOfferer is true (Receiver role), otherwise as Answerer (Sender role).
-func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (*ice.Agent, error) {
+func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (net.PacketConn, error) {
 	// 1. Create ICE Agent
 	agent, err := NewICEAgent(ctx, isOfferer) // Defined in ice.go
 	if err != nil {
@@ -123,9 +124,13 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (*
 	}
 
 	// 7. Wait for Remote Credentials
+	var rUfrag, rPwd string
 	select {
 	case u := <-remoteUfrag:
+		rUfrag = u
 		p := <-remotePwd
+		rPwd = p
+
 		if !isOfferer {
 			// Answerer: Now send our credentials
 			payload, _ := json.Marshal(initMsg)
@@ -156,18 +161,30 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (*
 
 	// 9. Start Connectivity Checks
 	// Agent automatically starts when remote candidates interacting
-	// We wait for connection
-	connected := make(chan struct{})
-	agent.OnConnectionStateChange(func(s ice.ConnectionState) {
-		if s == ice.ConnectionStateConnected {
-			close(connected)
-		}
-	})
+	// We wait for connection via Dial
 
-	select {
-	case <-connected:
-		return agent, nil
-	case <-ctx.Done():
-		return nil, fmt.Errorf("ice connection timed out")
+	// Dial returns the connection. It acts as a "connect until done".
+	// Since we already did SetRemoteCredentials, Dial handles the check loop.
+	// Note: Allow cancel via context.
+
+	conn, err := agent.Dial(ctx, rUfrag, rPwd)
+	if err != nil {
+		return nil, fmt.Errorf("ice dial failed: %w", err)
 	}
+
+	return &IcePacketConn{Conn: conn}, nil
+}
+
+// IcePacketConn wraps *ice.Conn to satisfy net.PacketConn.
+type IcePacketConn struct {
+	*ice.Conn
+}
+
+func (c *IcePacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+	n, err = c.Conn.Read(p)
+	return n, c.Conn.RemoteAddr(), err
+}
+
+func (c *IcePacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+	return c.Conn.Write(p)
 }

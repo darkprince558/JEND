@@ -7,8 +7,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"math/big"
+	"net"
 
 	"time"
 
@@ -29,38 +29,53 @@ func NewQUICTransport() *QUICTransport {
 	return &QUICTransport{}
 }
 
-// Listen starts a QUIC listener on the specified port
+// Listen starts a QUIC listener on the specified port.
+// It creates a UDP PacketConn internally.
 func (t *QUICTransport) Listen(port string) (*quic.Listener, error) {
 	tlsConf, err := generateTLSConfig()
 	if err != nil {
 		return nil, err
 	}
+	quicConfig := getQuicConfig()
+	return quic.ListenAddr(":"+port, tlsConf, quicConfig)
+}
 
-	quicConfig := &quic.Config{
-		MaxIdleTimeout:     5 * time.Second,
+// ListenPacket starts a QUIC listener on an existing PacketConn (e.g. from ICE).
+func (t *QUICTransport) ListenPacket(conn net.PacketConn) (*quic.Listener, error) {
+	tlsConf, err := generateTLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	quicConfig := getQuicConfig()
+	return quic.Listen(conn, tlsConf, quicConfig)
+}
+
+func getQuicConfig() *quic.Config {
+	return &quic.Config{
+		MaxIdleTimeout:     10 * time.Second, // Increased timeout for P2P stability
 		KeepAlivePeriod:    2 * time.Second,
 		MaxIncomingStreams: 100,
 	}
-
-	listener, err := quic.ListenAddr(":"+port, tlsConf, quicConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to listen: %w", err)
-	}
-	return listener, nil
 }
 
-// Dial connects to a QUIC listener
+// Dial connects to a QUIC listener.
 func (t *QUICTransport) Dial(addr string) (*quic.Conn, error) {
-	tlsConf := &tls.Config{
+	tlsConf := getTLSConfig()
+	return quic.DialAddr(context.Background(), addr, tlsConf, nil)
+}
+
+// DialPacket connects via an existing PacketConn (e.g. ICE).
+// The addr arg is technically unused for routing if conn is bound, but required by API.
+func (t *QUICTransport) DialPacket(conn net.PacketConn, addr net.Addr) (*quic.Conn, error) {
+	tlsConf := getTLSConfig()
+	return quic.Dial(context.Background(), conn, addr, tlsConf, nil)
+}
+
+func getTLSConfig() *tls.Config {
+	return &tls.Config{
 		InsecureSkipVerify: true, // Self-signed certs for P2P
 		NextProtos:         []string{"jend-protocol"},
 	}
-
-	conn, err := quic.DialAddr(context.Background(), addr, tlsConf, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial: %w", err)
-	}
-	return conn, nil
 }
 
 // generateTLSConfig generates a self-signed certificate for QUIC

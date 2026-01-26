@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -26,7 +27,10 @@ type IoTClient struct {
 func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 	// 1. Get AWS Credentials via Cognito
 	// TODO: Externalize IdentityPoolID configuration.
-	identityPoolID := "us-east-1:63825811-2a43-4a2b-893c-ce78d256819d"
+	identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
+	if identityPoolID == "" {
+		identityPoolID = "us-east-1:63825811-2a43-4a2b-893c-ce78d256819d"
+	}
 
 	// Initial config to get region/defaults
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))

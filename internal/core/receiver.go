@@ -117,11 +117,36 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 			if errSig == nil {
 				defer sigClient.Disconnect()
 				p2p := transport.NewP2PManager(sigClient, code)
-				agent, errIce := p2p.EstablishConnection(context.Background(), true) // true = Offerer (Receiver)
+				pc, errIce := p2p.EstablishConnection(context.Background(), true) // true = Offerer (Receiver)
 				if errIce == nil {
-					sendMsg(ui.StatusMsg("P2P (ICE) Connected! (Shim readiness check)"))
-					_ = agent
-					// Here we would swap 'tr' (transport) to use the ICE agent
+					sendMsg(ui.StatusMsg("P2P (ICE) Connected! Switching transport..."))
+
+					// Use the ICE connection for QUIC
+					// We can reuse the existing 'tr' (QUICTransport)
+					// But we need to update the dial logic or just dial here?
+					// RunReceiver continues to loop 'Dial'.
+					// We should probably override 'address' and 'tr' here or set a flag?
+					// Actually, simpler: Perform the handshake here and set 'conn' variable? Use a different flow.
+					// BUT to keep it simple with existing loop:
+
+					// We'll just define a valid fake address, but we need to dial using DialPacket.
+					// Since 'tr' doesn't store the connection, we can't just change 'tr'.
+					// We should call 'tr.DialPacket' here and handle the session.
+
+					qConn, errQ := tr.DialPacket(pc, nil)
+					if errQ == nil {
+						sendMsg(ui.StatusMsg("QUIC over ICE Established!"))
+						// Hand over to handleReceiveSession
+						// But we rely on Main Loop?
+						// Let's break the loop structure logic for this fallback path or wrap it?
+						// For PoC compliance:
+						stream, errS := qConn.OpenStreamSync(context.Background())
+						if errS == nil {
+							handleReceiveSession(qConn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg)
+							return // Done
+						}
+					}
+					sendMsg(ui.StatusMsg(fmt.Sprintf("QUIC over ICE Failed: %v", errQ)))
 				} else {
 					sendMsg(ui.StatusMsg(fmt.Sprintf("P2P ICE Failed: %v", errIce)))
 				}
