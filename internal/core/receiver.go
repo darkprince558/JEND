@@ -32,7 +32,7 @@ import (
 )
 
 // RunReceiver handles the main receiving logic
-func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool) {
+func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -142,7 +142,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 						// For PoC compliance:
 						stream, errS := qConn.OpenStreamSync(context.Background())
 						if errS == nil {
-							handleReceiveSession(qConn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg)
+							handleReceiveSession(qConn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg, concurrency)
 							return // Done
 						}
 					}
@@ -193,7 +193,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 		}
 
 		// Handle Session
-		done, size, hash, err := handleReceiveSession(conn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg)
+		done, size, hash, err := handleReceiveSession(conn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg, concurrency)
 		fileSize = size
 		fileHash = hash
 
@@ -228,6 +228,7 @@ func handleReceiveSession(
 	autoUnzip bool,
 	noClipboard bool,
 	sendMsg func(tea.Msg),
+	concurrency int,
 ) (bool, int64, string, error) {
 	var fileSize int64
 	var fileHash string
@@ -287,8 +288,8 @@ func handleReceiveSession(
 	useParallel := meta.Size > 100*1024*1024 && meta.Type != "text"
 
 	if useParallel {
-		sendMsg(ui.StatusMsg(fmt.Sprintf("Large file detected (%d MB). Using 4 parallel streams...", meta.Size/1024/1024)))
-		return downloadParallel(conn, stream, meta, outputDir, safeName, sendMsg, code) // Call specialized function
+		sendMsg(ui.StatusMsg(fmt.Sprintf("Large file detected (%d MB). Using %d parallel streams...", meta.Size/1024/1024, concurrency)))
+		return downloadParallel(conn, stream, meta, outputDir, safeName, sendMsg, code, concurrency) // Call specialized function
 	}
 
 	// Fallback to Sequential (Original Logic)
