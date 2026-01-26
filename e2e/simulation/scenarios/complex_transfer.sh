@@ -1,27 +1,29 @@
-#!/bin/bash
-set -e
-
 # Setup
-ROOT_DIR="../../.."
+# Ensure we are in the script directory
+cd "$(dirname "$0")"
+SCRIPT_DIR="$(pwd)"
+ROOT_DIR="$(cd ../../.. && pwd)"
 SIM_DIR="$ROOT_DIR/e2e/simulation"
 DATA_DIR="$ROOT_DIR/e2e/test_data"
-DOCKER_CMD="docker compose -f $SIM_DIR/docker-compose.yml"
 
 echo "=== Setup: Building Environment ==="
 mkdir -p "$DATA_DIR"
 dd if=/dev/urandom of="$DATA_DIR/large_file.dat" bs=1M count=10 # 10MB file for speed
 
-$DOCKER_CMD down || true
-$DOCKER_CMD build
-$DOCKER_CMD up -d
+# Move to Simulation Directory for Docker Context
+cd "$SIM_DIR"
+
+docker compose down || true
+docker compose build
+docker compose up -d
 
 echo "Waiting for services..."
 sleep 5
 
 # Get IP addresses
-SENDER_IP=$($DOCKER_CMD exec sender hostname -i)
-RECEIVER_IP=$($DOCKER_CMD exec receiver hostname -i)
-RELAY_IP=$($DOCKER_CMD exec coturn hostname -i)
+SENDER_IP=$(docker compose exec sender hostname -i)
+RECEIVER_IP=$(docker compose exec receiver hostname -i)
+RELAY_IP=$(docker compose exec coturn hostname -i)
 
 echo "Sender IP: $SENDER_IP"
 echo "Receiver IP: $RECEIVER_IP"
@@ -29,16 +31,16 @@ echo "Relay IP: $RELAY_IP"
 
 # Helper to run command in container
 run_sender() {
-    $DOCKER_CMD exec sender sh -c "$1"
+    docker compose exec sender sh -c "$1"
 }
 run_receiver_bg() {
-    $DOCKER_CMD exec -d receiver sh -c "$1"
+    docker compose exec -d receiver sh -c "$1"
 }
 
 # Install tools for network manipulation
 echo "=== Installing Network Tools (tc/iptables) ==="
 run_sender "apk add --no-cache iproute2 iptables"
-$DOCKER_CMD exec receiver apk add --no-cache iproute2 iptables
+docker compose exec receiver apk add --no-cache iproute2 iptables
 
 # SCENARIO 1: Strict NAT (Force TURN)
 echo "---------------------------------------------------"
@@ -79,7 +81,7 @@ echo "Checking Logs for TURN usage..."
 RELAY_USAGE=$(run_sender "grep 'via P2P ICE' /app/sender.log || echo 'fail'")
 
 # Verify file
-$DOCKER_CMD cp jend-sim-receiver:/app/output/large_file.dat ./received_strict.dat
+docker compose cp jend-sim-receiver:/app/output/large_file.dat ./received_strict.dat
 DIFF=$(diff "$DATA_DIR/large_file.dat" "./received_strict.dat" || echo "diff")
 
 if [ "$DIFF" == "" ]; then
@@ -112,7 +114,7 @@ run_receiver_bg "jend receive $CODE_LOSS --dir /app/output_loss --headless --no-
 echo "Waiting longer for lossy transfer..."
 sleep 30
 
-$DOCKER_CMD cp jend-sim-receiver:/app/output_loss/large_file.dat ./received_loss.dat
+docker compose cp jend-sim-receiver:/app/output_loss/large_file.dat ./received_loss.dat
 DIFF_LOSS=$(diff "$DATA_DIR/large_file.dat" "./received_loss.dat" || echo "diff")
 
 if [ "$DIFF_LOSS" == "" ]; then
@@ -123,5 +125,5 @@ else
 fi
 
 echo "=== ALL SCENARIOS PASSED ==="
-$DOCKER_CMD down
+docker compose down
 rm -f ./received_strict.dat ./received_loss.dat
