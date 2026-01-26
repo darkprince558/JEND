@@ -142,9 +142,7 @@ func TestLargeFileTransfer(t *testing.T) {
 	defer os.RemoveAll("received_large")
 
 	// Same setup as TestFileTransfer
-	// ... reusing sender/receiver logic but with large file
-	// Since the code is largely copy-paste, I'll invoke helper if possible
-	// or just run the sender/receiver commands.
+	// Reuse sender/receiver logic with large file.
 
 	// Start Sender
 	senderCmd := exec.Command(binaryPath, "send", largeFileName, "--headless", "--no-history", "--no-clipboard")
@@ -832,12 +830,9 @@ func TestNoHistory(t *testing.T) {
 		t.Fatalf("Failed to build binary: %v", err)
 	}
 
-	// 1. Clear History explicitly to ensure clean slate
-	// Note: This clears the ACTUAL history of the user running the test if we don't mock the audit file location.
-	// However, `internal/audit` writes to `~/.jend/audit.json` or similar.
-	// For testing, we should probably redirect the audit file or just check the count before/after if we can't redirect.
-	// Ideally `audit` package should allow overriding the path.
-	// HACK: We will check the output of `jend history` command.
+	// 1. Clear History explicitly to ensure clean slate.
+	// Warning: This affects the actual user history file (~/.jend/audit.json).
+	// We verify the count doesn't increase when --no-history is used.
 
 	// Get initial history count
 	histCmd := exec.Command(binaryPath, "history")

@@ -38,9 +38,8 @@ func TestAuditLogLifecycle(t *testing.T) {
 	// 3. Test Pruning (Simulate 1005 entries)
 	// We manually write 1005 entries (append)
 	// Wait, WriteEntry handles pruning.
-	// But it does it by reading the file.
-	// Let's brute force write 1100 entries.
-	// To make it fast, we can just append directly or call WriteEntry loop.
+	// Append 1100 entries to test log rotation.
+	// Write directly for speed.
 	for i := 0; i < 1100; i++ {
 		// We set timestamp to be monotonic so sorting is stable
 		e := LogEntry{

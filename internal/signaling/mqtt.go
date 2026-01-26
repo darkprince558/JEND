@@ -25,8 +25,7 @@ type IoTClient struct {
 // NewIoTClient creates a new authenticated MQTT client.
 func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 	// 1. Get AWS Credentials via Cognito
-	// TODO: Move IdentityPoolID to build-time config or fetch from Registry?
-	// For Phase 4 PoC: Hardcoded from Infra Output.
+	// TODO: Externalize IdentityPoolID configuration.
 	identityPoolID := "us-east-1:63825811-2a43-4a2b-893c-ce78d256819d"
 
 	// Initial config to get region/defaults

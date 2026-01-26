@@ -68,51 +68,14 @@ func downloadParallel(
 		go func(id int, start, length int64) {
 			defer wg.Done()
 
-			// Use control stream for worker 0? Or open new for all?
-			// Sender finishes 'handleConnection' when it returns.
-			// Sender 'handleConnection' loop breaks if Ack sends offset=0, then it enters loop sending data.
-			// BUT Sender logic says: "If Ack... (Send Sequential)".
-			// We sent Ack above.
-			// So Sender will start streaming sequential data on 'controlStream'.
-			// We want to use 'controlStream' for sequential? No.
-			// The Sender logic I wrote:
-			// "Wait for Ack OR Range Request" (line 353 Sender).
-			// If we send Ack, Sender enters Sequential Mode.
-			// If we send RangeReq, Sender enters Parallel Mode.
-
-			// Ah! We should NOT have sent Ack on controlStream if we want to use it for range.
-			// Or we repurpose controlStream for worker 0 by sending RangeReq INSTEAD of Ack.
+			// Worker 0 reuses the existing control stream for the first chunk.
+			// Workers 1..N open new streams, perform PAKE, and consume the handshake.
 
 			var s io.ReadWriter
 			if id == 0 {
 				s = controlStream
-				// We haven't sent Ack yet in this branch?
-				// Correct. My previous code replacement 'returned' before sending Ack if 'useParallel'.
-				// So we need to send RangeReq here.
-			} else {
-				// Open new stream
-				// PAKE is done per connection? Yes, PAKE session key ensures connection security?
-				// Wait. QUIC streams inherit connection security (TLS).
-				// We performed PAKE to authenticate the *connection*?
-				// My code: 'PerformPAKE(stream)'. It writes to stream.
-				// But does PAKE key secure subsequent streams?
-				// No, PAKE just derives a key and verifies it.
-				// The QUIC connection itself is TLS (currently self-signed).
-				// So streams are secure from eavesdropping.
-				// PAKE was just application-level auth.
-				// So new streams are fine.
-
-				// However, Sender 'RunSender' loop:
-				// Accepts Connection -> AcceptStream -> handleConnection.
-				// handleConnection -> Wait for Header (Handshake?)
-				// Sender expects Handshake on EVERY stream?
-				// Line 353 Sender: protocol.EncodeHeader(stream, Handshake...)
-				// So Sender initiates Handshake on every new accepted stream.
-
-				// So Worker 1..3:
-				// 1. Open Stream
-				// 2. Read Handshake (Metadata)
-				// 3. Send RangeReq
+				// We haven't sent Ack yet, so we send RangeReq below.
+				// This signals the Sender to enter Parallel Mode.
 
 				ns, err := conn.OpenStreamSync(context.Background())
 				if err != nil {
@@ -122,6 +85,7 @@ func downloadParallel(
 				defer ns.Close()
 				s = ns
 
+				// Perform PAKE on new stream
 				// Perform PAKE on new stream
 				// Note: Use same password. Role 1 (Receiver).
 				if err := PerformPAKE(s, password, 1); err != nil {

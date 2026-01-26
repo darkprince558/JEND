@@ -60,10 +60,7 @@ func TestCompressPath(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Expect names like "subdir/file2.txt" inside because CompressPath uses relative path
-		// Actually CompressPath includes the base directory name if it's a directory
-		// Let's check what we expect. Logic says `filepath.Rel(filepath.Dir(filePath), path)`
-		// If filePath is /tmp/testDir, Dir is /tmp, Rel is testDir/file1.txt
-		// So we verify we see "testDir/..." prefix
+		// Verify expected path structure (should be relative to base dir)
 
 		t.Logf("Tar Entry: %s", header.Name)
 		if filepath.Base(header.Name) == "file1.txt" {

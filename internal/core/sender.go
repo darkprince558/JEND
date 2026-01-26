@@ -218,9 +218,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		sendMsg(ui.StatusMsg("Signaling Connected. Waiting for peer..."))
 		defer sigClient.Disconnect()
 
-		// TODO: Listen for P2P connection init via MQTT here?
-		// Actually, sender acts as the "Server" via ICE, so Receiver initiates.
-		// Construct the P2PManager and wait for Offer.
+		// Initialize P2P manager and wait for connection.
 		p2p := transport.NewP2PManager(sigClient, code)
 
 		// This blocks until ICE connects
@@ -231,9 +229,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		}
 		sendMsg(ui.StatusMsg("P2P (ICE) Connected! Handing over to QUIC..."))
 
-		// Setup PacketConn wrapper for QUIC over ICE?
-		// For now, logging success is the request. Wiring the full PacketConn is complex.
-		// We will just Log it for Phase 3 completion.
+		// TODO: Integrate ICE PacketConn with QUIC listener.
 		_ = agent
 	}()
 

@@ -170,7 +170,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 		// Handle Session
 		done, size, hash, err := handleReceiveSession(conn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg)
 		fileSize = size
-		fileHash = hash // approximate, might be partial if failed, but better than empty
+		fileHash = hash
 
 		if done {
 			// Success!
@@ -341,7 +341,7 @@ func handleReceiveSession(
 			if err == io.EOF {
 				break
 			}
-			// If we received all data but connection dropped (e.g. sender closed improperly or timed out), treat as success
+			// If we received all data but connection dropped, treat as success
 			if totalRecv == meta.Size {
 				break
 			}
@@ -454,7 +454,7 @@ func handleReceiveSession(
 			return true, fileSize, "", nil
 		}
 
-		// No hash provided, just move it (risky but consistent with old logic)
+		// No hash provided, move file without verification
 		os.Rename(partialPath, finalPath)
 		sendMsg(ui.StatusMsg("Integrity Check: SKIPPED (No hash provided)"))
 	}

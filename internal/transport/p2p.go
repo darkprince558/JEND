@@ -112,8 +112,7 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (*
 	if isOfferer {
 		initMsg.Type = signaling.TypeOffer
 	} else {
-		// Answerer (Sender) waits for Offer first?
-		// Actually, standard ICE: Offerer sends first. Answerer responds.
+		// Answerer (Sender) waits for Offer first.
 		initMsg.Type = signaling.TypeAnswer
 	}
 
@@ -172,8 +171,3 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (*
 		return nil, fmt.Errorf("ice connection timed out")
 	}
 }
-
-// Helper: Wrap Agent in PacketConn?
-// Usually accessing agent.GetSelectedCandidatePair().Conn() gives the underlying net.PacketConn (UDP)
-// but it might be shared.
-// For PoC: We return the Agent, caller handles stream/wrapping.
