@@ -211,14 +211,17 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		jsii.String("echo 'realm=jend.local' >> /etc/coturn/turnserver.conf"),
 		jsii.String("echo 'use-auth-secret' >> /etc/coturn/turnserver.conf"), // Enable Dynamic Auth
 		jsii.String("echo \"static-auth-secret=$SECRET\" >> /etc/coturn/turnserver.conf"),
-		jsii.String("# Force Update 2"),
+		// Anti-Abuse Limits
+		jsii.String("echo 'max-bps=1000000' >> /etc/coturn/turnserver.conf"), // 1MB/s limit
+		jsii.String("echo 'user-quota=100' >> /etc/coturn/turnserver.conf"),  // Max allocations per user
+		jsii.String("# Force Update 3"),
 		jsii.String("systemctl enable coturn"),
 		jsii.String("systemctl restart coturn"),
 	)
 
 	turnInstance := awsec2.NewInstance(stack, jsii.String("TurnInstance"), &awsec2.InstanceProps{
 		Vpc:                vpc,
-		InstanceType:       awsec2.NewInstanceType(jsii.String("t3.small")),
+		InstanceType:       awsec2.NewInstanceType(jsii.String("t3.micro")), // Free Tier Eligible
 		MachineImage:       ami,
 		SecurityGroup:      turnSg,
 		UserData:           userData,
