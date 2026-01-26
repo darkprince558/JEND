@@ -12,8 +12,6 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsdynamodb"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 
-	//"github.com/aws/aws-cdk-go/awscdk/v2/awsecs"
-	//"github.com/aws/aws-cdk-go/awscdk/v2/awselasticloadbalancingv2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiot"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"

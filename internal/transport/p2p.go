@@ -25,8 +25,8 @@ func NewP2PManager(sig *signaling.IoTClient, code string) *P2PManager {
 	}
 }
 
-// EstablishConnection performs the ICE handshake.
-// isOfferer: true (Receiver), false (Sender)
+// EstablishConnection performs the ICE handshake to setup a P2P connection.
+// It acts as the Offerer if isOfferer is true (Receiver role), otherwise as Answerer (Sender role).
 func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (*ice.Agent, error) {
 	// 1. Create ICE Agent
 	agent, err := NewICEAgent(ctx, isOfferer) // Defined in ice.go

@@ -565,10 +565,10 @@ func handleReceiveSession(
 	return true, fileSize, fileHash, nil
 }
 
+// PerformPAKE executes a custom Mutual Authentication protocol using HMAC-SHA256 and a challenge-response mechanism.
+// It establishes that both parties share the same correct code/password without revealing it.
+// role: 0 for Sender (Verifier), 1 for Receiver (Prover).
 func PerformPAKE(stream io.ReadWriter, password string, role int) error {
-	// Custom Robust Mutual Authentication (replacing crashing schollz/pake)
-	// Role 0 = Sender (Verifier), Role 1 = Receiver (Prover/Client)
-	// Uses HMAC-SHA256 with Salt and Session Nonce.
 
 	// Step 0: Sync Stream (Receiver speaks first to trigger AcceptStream on Server)
 	if role == 1 { // Receiver

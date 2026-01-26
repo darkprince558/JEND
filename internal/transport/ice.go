@@ -16,6 +16,7 @@ const (
 	AuthAPI    = "https://k4fa8k5sjg.execute-api.us-east-1.amazonaws.com/turn-auth"
 )
 
+// TurnCredentials represents the ephemeral credentials returned by the TURN Auth API.
 type TurnCredentials struct {
 	Username string   `json:"username"`
 	Password string   `json:"password"`
@@ -24,6 +25,7 @@ type TurnCredentials struct {
 }
 
 // NewICEAgent creates a new ICE agent configured with our STUN/TURN servers.
+// It fetches ephemeral credentials from the AuthAPI if needed.
 func NewICEAgent(ctx context.Context, isControlling bool) (*ice.Agent, error) {
 	// 1. Configure ICE Servers
 	urls := []*ice.URL{}
