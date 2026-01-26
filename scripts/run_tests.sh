@@ -1,7 +1,11 @@
 #!/bin/bash
 set -e
 
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
 RUN_DOCKER=false
+
 
 # Parse Arguments
 for arg in "$@"; do

@@ -34,3 +34,7 @@ Thumbs.db
 # IDE Specific (GoLand)
 .idea/
 *.iml
+
+# AWS CDK
+cdk.out/
+cdk.context.json

@@ -54,3 +54,13 @@ func FindSender(code string, timeout time.Duration) (string, error) {
 		}
 	}
 }
+
+// LookupCloud queries the global registry for the sender.
+func LookupCloud(code string) (string, error) {
+	client := NewRegistryClient()
+	item, err := client.Lookup(code)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s:%d", item.IP, item.Port), nil
+}

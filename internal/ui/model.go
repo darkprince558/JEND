@@ -60,14 +60,14 @@ func NewModel(role Role, filename string, code string) Model {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(ColorSecondary)
 
-	// Custom Progress Bar Styles
+	// Custom Progress Bar Styles (Neon Gradient)
 	pTotal := progress.New(
 		progress.WithGradient(string(ColorPrimary), string(ColorSecondary)),
-		progress.WithWidth(40),
+		progress.WithWidth(50),
 	)
 	pFile := progress.New(
-		progress.WithGradient("#00FF00", "#00FFFF"), // Different color for file
-		progress.WithWidth(40),
+		progress.WithGradient(string(ColorSuccess), string(ColorSecondary)), // Green to Cyan
+		progress.WithWidth(50),
 	)
 
 	return Model{
@@ -146,9 +146,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	if m.Err != nil {
 		return ContainerStyle.Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				ErrorStyle.Render("Error Occurred"),
-				fmt.Sprintf("%v", m.Err),
+			lipgloss.JoinVertical(lipgloss.Center,
+				ErrorStyle.Render("ERROR"),
+				lipgloss.NewStyle().Foreground(ColorError).Padding(1).Render(fmt.Sprintf("%v", m.Err)),
 			),
 		)
 	}
@@ -158,21 +158,32 @@ func (m Model) View() string {
 	switch m.State {
 	case StateStart, StateConnecting:
 		// Matrix Style Handshake
-		header := MatrixHeaderStyle.Render("JEND")
+		header := MatrixHeaderStyle.Render("JEND SECURE LINK")
 
 		info := ""
 		if m.Role == RoleSender {
 			info = ViewCode(m.Code)
 		} else {
-			info = MatrixTextStyle.Render(">> TERMINAL ACTIVE <<\n>> INITIALIZING... <<")
+			info = MatrixTextStyle.Render(">> ESTABLISHING SECURE CONNECTION <<\n>> WAITING FOR PEER... <<")
 		}
 
-		status := MatrixTextStyle.Render(fmt.Sprintf(">> %s", m.Status))
+		// Centered Status with Spinner
+		statusLine := lipgloss.JoinHorizontal(lipgloss.Center,
+			m.Spinner.View(),
+			" ",
+			StatusStyle.Render(m.Status),
+		)
 
-		content = lipgloss.JoinVertical(lipgloss.Center, header, info, m.Spinner.View(), status)
+		content = lipgloss.JoinVertical(lipgloss.Center,
+			header,
+			"\n",
+			info,
+			"\n",
+			statusLine,
+		)
 
 	case StateTransferring:
-		header := TitleStyle.Render("Transfer In Progress")
+		header := TitleStyle.Render("DATA TRANSFER IN P2P TUNNEL")
 
 		// Telemetry Grid
 		telemetry := lipgloss.JoinHorizontal(lipgloss.Top,
@@ -180,28 +191,45 @@ func (m Model) View() string {
 				StatLabelStyle.Render("SPEED"),
 				StatValueStyle.Render(m.Speed),
 			),
-			lipgloss.NewStyle().Width(4).Render(""),
+			lipgloss.NewStyle().Width(2).Render(""),
 			lipgloss.JoinVertical(lipgloss.Left,
 				StatLabelStyle.Render("ETA"),
 				StatValueStyle.Render(m.ETA),
 			),
-			lipgloss.NewStyle().Width(4).Render(""),
+			lipgloss.NewStyle().Width(2).Render(""),
 			lipgloss.JoinVertical(lipgloss.Left,
 				StatLabelStyle.Render("PROTOCOL"),
-				StatValueStyle.Render(m.Protocol), // e.g. "QUIC [LAN]"
+				StatValueStyle.Render(m.Protocol),
 			),
 		)
 
 		bars := lipgloss.JoinVertical(lipgloss.Left,
-			lipgloss.JoinHorizontal(lipgloss.Bottom, StatLabelStyle.Render("Total Session"), m.TotalProgress.View()),
+			lipgloss.JoinHorizontal(lipgloss.Bottom, StatLabelStyle.Render("TOTAL"), m.TotalProgress.View()),
 			" ", // spacer
-			lipgloss.JoinHorizontal(lipgloss.Bottom, StatLabelStyle.Render("Current File "), m.FileProgress.View()),
+			lipgloss.JoinHorizontal(lipgloss.Bottom, StatLabelStyle.Render("FILE "), m.FileProgress.View()),
 		)
 
-		content = lipgloss.JoinVertical(lipgloss.Center, header, telemetry, " ", bars)
+		content = lipgloss.JoinVertical(lipgloss.Center,
+			header,
+			"\n",
+			telemetry,
+			"\n",
+			bars,
+			"\n",
+			StatusStyle.Render(m.Status),
+		)
 
 	case StateDone:
-		content = TitleStyle.Render("Transfer Complete!")
+		// Success state
+		header := TitleStyle.Render("TRANSFER COMPLETE")
+		check := lipgloss.NewStyle().Foreground(ColorSuccess).SetString("✔").String()
+		msg := lipgloss.NewStyle().Foreground(ColorText).Render("All files transmitted successfully.")
+
+		content = lipgloss.JoinVertical(lipgloss.Center,
+			header,
+			"\n",
+			check+" "+msg,
+		)
 	}
 
 	return ContainerStyle.Render(content)

@@ -19,10 +19,10 @@ mkdir -p "$OUTPUT_DIR"
 echo "Hello from Docker!" > "$TEST_DATA_DIR/payload.txt"
 
 echo "=== Building Containers ==="
-docker-compose build
+docker compose build
 
 echo "=== Starting Sender ==="
-docker-compose up -d sender
+docker compose up -d sender
 
 echo "Waiting for sender to generate code..."
 TIMEOUT=30
@@ -43,8 +43,8 @@ done
 
 if [ -z "$CODE" ]; then
     echo "Error: Timed out waiting for code."
-    docker-compose logs sender
-    docker-compose down
+    docker compose logs sender
+    docker compose down
     exit 1
 fi
 
@@ -52,11 +52,11 @@ echo "Got Code: $CODE"
 echo "$CODE" > "$ROOT_DIR/transfer_code.txt"
 
 echo "=== Starting Receiver ==="
-docker-compose up -d receiver
+docker compose up -d receiver
 
 echo "Waiting for receiver to finish..."
 # Wait for receiver container to exit
-docker-compose wait receiver
+docker compose wait receiver
 
 echo "=== Verifying Transfer ==="
 if [ -f "$OUTPUT_DIR/payload.txt" ]; then
@@ -73,10 +73,10 @@ else
 fi
 
 echo "=== Logs ==="
-docker-compose logs
+docker compose logs
 
 echo "=== Cleanup ==="
-docker-compose down
+docker compose down
 rm -f "$ROOT_DIR/transfer_code.txt"
 rm -f "$ROOT_DIR/sender_output.log"
 rm -f "$TEST_DATA_DIR/payload.txt"

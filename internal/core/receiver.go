@@ -28,6 +28,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/darkprince558/jend/internal/audit"
 	"github.com/darkprince558/jend/internal/discovery"
+	"github.com/darkprince558/jend/internal/signaling"
 )
 
 // RunReceiver handles the main receiving logic
@@ -97,12 +98,39 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 
 	// Try Discovery
 	address := "localhost:" + Port
-	foundIP, err := discovery.FindSender(code, 5*time.Second)
+	foundIP, err := discovery.FindSender(code, 2*time.Second) // Reduced local timeout
 	if err == nil {
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender at %s!", foundIP)))
 		address = foundIP
 	} else {
-		sendMsg(ui.StatusMsg("Discovery timed out, trying localhost..."))
+		sendMsg(ui.StatusMsg("Local discovery timed out, checking Cloud Registry..."))
+		cloudIP, errCloud := discovery.LookupCloud(code)
+		if errCloud == nil {
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender via Cloud at %s!", cloudIP)))
+			address = cloudIP
+		} else {
+			sendMsg(ui.StatusMsg("Cloud lookup failed. Initiating P2P Signaling (ICE)..."))
+
+			// Start P2P Negotiation in background (blocking dial fallback)
+			// For PoC: We try to signal and get an agent.
+			sigClient, errSig := signaling.NewIoTClient(context.Background(), "receiver-"+code)
+			if errSig == nil {
+				defer sigClient.Disconnect()
+				p2p := transport.NewP2PManager(sigClient, code)
+				agent, errIce := p2p.EstablishConnection(context.Background(), true) // true = Offerer (Receiver)
+				if errIce == nil {
+					sendMsg(ui.StatusMsg("P2P (ICE) Connected! (Shim readiness check)"))
+					_ = agent
+					// Here we would swap 'tr' (transport) to use the ICE agent
+				} else {
+					sendMsg(ui.StatusMsg(fmt.Sprintf("P2P ICE Failed: %v", errIce)))
+				}
+			} else {
+				sendMsg(ui.StatusMsg(fmt.Sprintf("Signaling Auth Failed: %v", errSig)))
+			}
+
+			sendMsg(ui.StatusMsg("Fallback exhausted. trying localhost..."))
+		}
 	}
 
 	// Main Receiver Loop

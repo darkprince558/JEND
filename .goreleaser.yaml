@@ -1,7 +1,7 @@
+version: 2
+
 project_name: jend
-before:
-  hooks:
-    - go mod tidy
+
 builds:
   - env:
       - CGO_ENABLED=0
@@ -12,19 +12,26 @@ builds:
     goarch:
       - amd64
       - arm64
-    main: ./cmd/jend # Assuming main package is here
+    main: ./cmd/jend/main.go
+    binary: jend
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
 archives:
-  - replacements:
-      darwin: Darwin
-      linux: Linux
-      windows: Windows
-      386: i386
-      amd64: x86_64
-    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+  - format: tar.gz
+    # this name template makes the archive name compatible with the standard expected by many:
+    # name_titleized_os_arch.tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
     format_overrides:
-      - goos: windows
-        format: zip
+    - goos: windows
+      format: zip
 
 checksum:
   name_template: 'checksums.txt'
@@ -38,3 +45,8 @@ changelog:
     exclude:
       - '^docs:'
       - '^test:'
+
+release:
+  github:
+    owner: darkprince558
+    name: jend
