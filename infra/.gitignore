@@ -17,3 +17,6 @@
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# Binary named infra
+infra
