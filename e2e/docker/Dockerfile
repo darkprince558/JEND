@@ -1,5 +1,5 @@
 
-FROM golang:1.24-alpine
+FROM golang:alpine
 
 # Install test dependencies
 RUN apk add --no-cache curl jq unzip bash

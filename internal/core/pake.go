@@ -23,22 +23,23 @@ const (
 // PerformPAKE executes a custom Mutual Authentication protocol using Argon2id + HMAC-SHA256
 // and a challenge-response mechanism.
 // It establishes that both parties share the same correct code/password without revealing it.
+// Returns the session key K upon success.
 // role: 0 for Sender (Verifier), 1 for Receiver (Prover).
-func PerformPAKE(stream io.ReadWriter, password string, role int) error {
+func PerformPAKE(stream io.ReadWriter, password string, role int) ([]byte, error) {
 
 	// Step 0: Sync Stream (Receiver speaks first to trigger AcceptStream on Server)
 	if role == 1 { // Receiver
 		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, 0); err != nil {
-			return err
+			return nil, err
 		}
 	} else { // Sender
 		// Sender waits for Hello
 		pType, _, err := protocol.DecodeHeader(stream)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if pType != protocol.TypePAKE {
-			return fmt.Errorf("expected PAKE hello")
+			return nil, fmt.Errorf("expected PAKE hello")
 		}
 	}
 
@@ -47,27 +48,27 @@ func PerformPAKE(stream io.ReadWriter, password string, role int) error {
 	if role == 0 { // Sender
 		salt = make([]byte, 16)
 		if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-			return err
+			return nil, err
 		}
 		// Send Salt
 		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, uint32(len(salt))); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := stream.Write(salt); err != nil {
-			return err
+			return nil, err
 		}
 	} else { // Receiver
 		// Read Salt
 		pType, length, err := protocol.DecodeHeader(stream)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if pType != protocol.TypePAKE {
-			return fmt.Errorf("expected salt")
+			return nil, fmt.Errorf("expected salt")
 		}
 		salt = make([]byte, length)
 		if _, err := io.ReadFull(stream, salt); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -81,27 +82,27 @@ func PerformPAKE(stream io.ReadWriter, password string, role int) error {
 	if role == 0 { // Sender
 		nonce = make([]byte, 32)
 		if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-			return err
+			return nil, err
 		}
 		// Send Nonce
 		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, uint32(len(nonce))); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := stream.Write(nonce); err != nil {
-			return err
+			return nil, err
 		}
 	} else { // Receiver
 		// Read Nonce
 		pType, length, err := protocol.DecodeHeader(stream)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if pType != protocol.TypePAKE {
-			return fmt.Errorf("expected nonce")
+			return nil, fmt.Errorf("expected nonce")
 		}
 		nonce = make([]byte, length)
 		if _, err := io.ReadFull(stream, nonce); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -110,25 +111,25 @@ func PerformPAKE(stream io.ReadWriter, password string, role int) error {
 
 	if role == 1 { // Receiver sends proof
 		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, uint32(len(clientTag))); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := stream.Write(clientTag); err != nil {
-			return err
+			return nil, err
 		}
 	} else { // Sender verifies proof
 		pType, length, err := protocol.DecodeHeader(stream)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if pType != protocol.TypePAKE {
-			return fmt.Errorf("expected client proof")
+			return nil, fmt.Errorf("expected client proof")
 		}
 		gotTag := make([]byte, length)
 		if _, err := io.ReadFull(stream, gotTag); err != nil {
-			return err
+			return nil, err
 		}
 		if subtle.ConstantTimeCompare(gotTag, clientTag) != 1 {
-			return fmt.Errorf("authentication failed: wrong password")
+			return nil, fmt.Errorf("authentication failed: wrong password")
 		}
 	}
 
@@ -137,29 +138,29 @@ func PerformPAKE(stream io.ReadWriter, password string, role int) error {
 
 	if role == 0 { // Sender sends proof
 		if err := protocol.EncodeHeader(stream, protocol.TypePAKE, uint32(len(serverTag))); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := stream.Write(serverTag); err != nil {
-			return err
+			return nil, err
 		}
 	} else { // Receiver verifies proof
 		pType, length, err := protocol.DecodeHeader(stream)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if pType != protocol.TypePAKE {
-			return fmt.Errorf("expected server proof")
+			return nil, fmt.Errorf("expected server proof")
 		}
 		gotTag := make([]byte, length)
 		if _, err := io.ReadFull(stream, gotTag); err != nil {
-			return err
+			return nil, err
 		}
 		if subtle.ConstantTimeCompare(gotTag, serverTag) != 1 {
-			return fmt.Errorf("server authentication failed")
+			return nil, fmt.Errorf("server authentication failed")
 		}
 	}
 
-	return nil
+	return K, nil
 }
 
 func computeHMAC(key, data []byte) []byte {

@@ -33,6 +33,9 @@ echo "Relay IP: $RELAY_IP"
 run_sender() {
     docker compose exec sender sh -c "$1"
 }
+run_sender_bg() {
+    docker compose exec -d sender sh -c "$1"
+}
 run_receiver_bg() {
     docker compose exec -d receiver sh -c "$1"
 }
@@ -63,9 +66,9 @@ RELAY_URL="turn:$RELAY_IP:3478"
 
 # Start Sender in background
 run_sender "jend config set-relay --url $RELAY_URL --user user --pass password"
-run_sender "jend send /app/e2e/test_data/large_file.dat --headless --no-history > /app/sender.log 2>&1 &"
+run_sender_bg "jend send /app/e2e/test_data/large_file.dat --headless --no-history > /app/sender.log 2>&1"
 
-sleep 2 
+sleep 5 
 CODE=$(run_sender "grep 'Code: ' /app/sender.log | head -n 1 | sed 's/Code: //'")
 echo "Code: $CODE"
 
@@ -81,7 +84,7 @@ echo "Checking Logs for TURN usage..."
 RELAY_USAGE=$(run_sender "grep 'via P2P ICE' /app/sender.log || echo 'fail'")
 
 # Verify file
-docker compose cp jend-sim-receiver:/app/output/large_file.dat ./received_strict.dat
+docker compose cp receiver:/app/output/large_file.dat ./received_strict.dat
 DIFF=$(diff "$DATA_DIR/large_file.dat" "./received_strict.dat" || echo "diff")
 
 if [ "$DIFF" == "" ]; then
@@ -104,8 +107,8 @@ run_sender "tc qdisc add dev eth0 root netem loss 20%"
 
 CODE="packet-loss-test"
 # Start Sender
-run_sender "jend send /app/e2e/test_data/large_file.dat --headless --no-history > /app/sender_loss.log 2>&1 &"
-sleep 2
+run_sender_bg "jend send /app/e2e/test_data/large_file.dat --headless --no-history > /app/sender_loss.log 2>&1"
+sleep 5
 CODE_LOSS=$(run_sender "grep 'Code: ' /app/sender_loss.log | head -n 1 | sed 's/Code: //'")
 
 # Start Receiver
@@ -114,7 +117,7 @@ run_receiver_bg "jend receive $CODE_LOSS --dir /app/output_loss --headless --no-
 echo "Waiting longer for lossy transfer..."
 sleep 30
 
-docker compose cp jend-sim-receiver:/app/output_loss/large_file.dat ./received_loss.dat
+docker compose cp receiver:/app/output_loss/large_file.dat ./received_loss.dat
 DIFF_LOSS=$(diff "$DATA_DIR/large_file.dat" "./received_loss.dat" || echo "diff")
 
 if [ "$DIFF_LOSS" == "" ]; then

@@ -25,15 +25,20 @@ func TestPerformPAKE_Argon2(t *testing.T) {
 	errChan := make(chan error)
 
 	go func() {
-		errChan <- PerformPAKE(senderRW, password, 0)
+		_, err := PerformPAKE(senderRW, password, 0)
+		if err != nil {
+			errChan <- err
+		}
+		close(errChan)
 	}()
 
-	go func() {
-		errChan <- PerformPAKE(receiverRW, password, 1)
-	}()
+	_, err := PerformPAKE(receiverRW, password, 1)
+	if err != nil {
+		t.Errorf("Handshake failed: %v", err)
+	}
 
 	// Wait for both
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 1; i++ { // Changed loop count to 1 as receiver is synchronous
 		err := <-errChan
 		if err != nil {
 			t.Errorf("Handshake failed: %v", err)

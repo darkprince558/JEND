@@ -351,10 +351,20 @@ func handleConnection(
 	// PAKE Authentication
 	if !skipAuth {
 		sendMsg(ui.StatusMsg("Authenticating..."))
-		if err := PerformPAKE(stream, code, 0); err != nil {
+		key, err := PerformPAKE(stream, code, 0)
+		if err != nil {
 			return false, fmt.Errorf("authentication failed: %v", err)
 		}
-		sendMsg(ui.StatusMsg("Authenticated! Handshaking..."))
+
+		// Upgrade to Secure Stream
+		secureStream, err := NewSecureStream(stream, key)
+		if err != nil {
+			return false, fmt.Errorf("failed to create secure stream: %v", err)
+		}
+		// Replace the stream with the secure version
+		stream = secureStream
+
+		sendMsg(ui.StatusMsg("Authenticated! Connection Encrypted."))
 	}
 
 	// Calculate Code Hash

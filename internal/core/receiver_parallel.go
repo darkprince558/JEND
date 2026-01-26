@@ -117,11 +117,20 @@ func downloadParallel(
 			}
 			defer ns.Close()
 			s = ns
-
-			if err := PerformPAKE(s, password, 1); err != nil {
+			// Authenticate sub-stream
+			key, err := PerformPAKE(s, password, 1) // Role 1 = Receiver
+			if err != nil {
 				errChan <- fmt.Errorf("worker %d pake failed: %w", id, err)
 				return
 			}
+
+			// Upgrade
+			secureStream, err := NewSecureStream(s, key)
+			if err != nil {
+				errChan <- fmt.Errorf("worker %d failed to upgrade stream: %w", id, err)
+				return
+			}
+			s = secureStream
 
 			// Consume Handshake from sender (it sends it after PAKE)
 			_, l, err := protocol.DecodeHeader(s)

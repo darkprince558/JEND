@@ -237,11 +237,21 @@ func handleReceiveSession(
 	var fileSize int64
 	var fileHash string
 
-	// PAKE Authentication (on Control Stream)
+	// 1. PAKE Authentication
 	sendMsg(ui.StatusMsg("Authenticating..."))
-	if err := PerformPAKE(stream, code, 1); err != nil {
+	key, err := PerformPAKE(stream, code, 1)
+	if err != nil {
 		return false, 0, "", fmt.Errorf("authentication failed: %v", err)
 	}
+
+	// Upgrade to Secure Stream
+	secureStream, err := NewSecureStream(stream, key)
+	if err != nil {
+		return false, 0, "", fmt.Errorf("failed to create secure stream: %v", err)
+	}
+	stream = secureStream
+
+	// 2. Handshake
 	sendMsg(ui.StatusMsg("Authenticated! Waiting for handshake..."))
 
 	// Read Handshake
