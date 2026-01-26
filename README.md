@@ -14,12 +14,23 @@ Instead of standard TCP, JEND runs over **QUIC** (the protocol powering HTTP/3).
 
 * **Why?** TCP suffers from head-of-line blocking; if one packet is lost, the entire connection halts. QUIC multiplexes streams, so if a packet drops on one stream, the others keep moving. This effectively saturates available bandwidth on lossy networks (like public WiFi).
 
-### 2. Security: Augmented PAKE + Argon2id
+### 2. Security: End-to-End Encrypted & Zero-Trust
 
-The most critical part of a transfer tool is the "handshake". How do two strangers trust each other without a pre-shared key?
+JEND assumes the network is compromised. Every decision was made to ensure data integrity and privacy even if an attacker controls the Wi-Fi or the relay server.
 
-* **Protocol**: I implemented a **Password-Authenticated Key Exchange (PAKE)**. This mathematically proves both parties know the code (e.g. `correct-horse-battery`) without ever sending the code over the wire.
-* **Hardening**: Standard PAKE is vulnerable to GPU brute-forcing if the password is simple. I upgraded the key derivation to **Argon2id** (Time=3, Memory=64MB), forcing any attacker to spend ~50-100ms of CPU time per guess. This makes the 3-word code mathematically secure for the duration of the transfer window.
+* **[Password-Authenticated Key Exchange (PAKE)](https://en.wikipedia.org/wiki/Password-authenticated_key_agreement)**:
+  * **The Problem**: Sending a password/code to a server allows the server to see it (Man-in-the-Middle).
+  * **The Solution**: JEND uses an Augmented PAKE protocol. The sender and receiver mathematically prove they know the same 3-word code (e.g. `fast-happy-sloth`) **without ever exchanging the code itself**. This allows for a zero-knowledge handshake.
+  * **Hardening**: Because short codes are prone to brute-force, I implemented **[Argon2id](https://en.wikipedia.org/wiki/Argon2)** for key derivation (Memory=64MB, Time=3). This forces an attacker to spend prohibitive CPU resources to guess a single code.
+
+* **[Authenticated Encryption (AEAD)](https://en.wikipedia.org/wiki/Authenticated_encryption)**:
+  * Once the PAKE handshake completes, the session key is not just verified—it is used to bootstrap a secure tunnel.
+  * All file data is encrypted using **AES-256-GCM** (Galois/Counter Mode). This guarantees both **Confidentiality** (no one can read it) and **Integrity** (no one can tamper with it).
+  * *Why this matters*: Even if you use a malicious public relay, the relay owner sees only opaque noise. They cannot see your files.
+
+* **Resilience & Abuse Prevention**:
+  * **Rate Limiting**: The public registry prevents namespace scanning by strictly throttling lookup attempts (10 RPS/5 Burst), making online brute-force attacks mathematically infeasible.
+  * **No Central Data Store**: JEND is transient. Files move directly from Peer A to Peer B. No user data is ever stored on a central server.
 
 ### 3. Network Traversal: ICE & Custom Relays
 
@@ -88,7 +99,50 @@ jend send --headless --no-history --timeout 5m build_artifacts.tar.gz
 
 For 10Gbps+ links, you can manually tune the concurrency:
 
+## Command Reference
+
+### `jend send`
+
+Usage: `jend send [file] [flags]`
+
+| Feature | Flag | Description |
+| :--- | :--- | :--- |
+| **Send Text** | `--text "msg"` | Send a text string directly without creating a file. Useful for sharing URLs or passwords. |
+| **Incognito** | `--incognito` | Disables history logging and clipboard copying. Use this for sensitive data you don't want tracked locally. |
+| **Compression** | `--tar` / `--zip` | Manually force a compression format. JEND usually detects this automatically for directories. |
+| **Automation** | `--headless` | Runs without the interactive UI (TUI). Outputs machine-readable logs to stdout for scripts. |
+| **Custom Relay** | `--relay-url` | Override the default relay with your own TURN server address. |
+
+**Examples:**
+
 ```bash
-# Open 16 parallel QUIC streams
-jend receive --concurrency 16 happy-delta-seven
+# Send a sensitive string without logging it
+jend send --incognito --text "MySecretPassword"
+
+# Run in a script (CI/CD)
+jend send --headless --zip ./dist/
 ```
+
+### `jend receive`
+
+Usage: `jend receive [code] [flags]`
+
+| Feature | Flag | Description |
+| :--- | :--- | :--- |
+| **Concurrency** | `--concurrency <N>` | Number of parallel QUIC streams to open (default: 4). Increase this on high-speed networks (1Gbps+). |
+| **Output Path** | `--output <dir>` | Specify where to save the incoming file. Defaults to the current directory. |
+| **Automation** | `--headless` | Runs without the UI. Useful for background jobs. |
+
+**Examples:**
+
+```bash
+# Download to a specific folder with high concurrency
+jend receive --output ~/Downloads --concurrency 16 happy-delta-seven
+```
+
+### `jend config`
+
+Persistent configuration to save your preferences globally.
+
+* `jend config set-relay` — Save your private TURN server credentials.
+* `jend config clear-relay` — Reset to default settings.
