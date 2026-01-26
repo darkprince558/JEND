@@ -77,7 +77,18 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 	)
 
 	httpApi := awsapigatewayv2.NewHttpApi(stack, jsii.String("JendApi"), &awsapigatewayv2.HttpApiProps{
-		ApiName: jsii.String("JendRegistryApi"),
+		ApiName:            jsii.String("JendRegistryApi"),
+		CreateDefaultStage: jsii.Bool(false),
+	})
+
+	awsapigatewayv2.NewHttpStage(stack, jsii.String("Stage"), &awsapigatewayv2.HttpStageProps{
+		HttpApi:    httpApi,
+		StageName:  jsii.String("$default"),
+		AutoDeploy: jsii.Bool(true),
+		Throttle: &awsapigatewayv2.ThrottleSettings{
+			BurstLimit: jsii.Number(5),
+			RateLimit:  jsii.Number(10),
+		},
 	})
 
 	httpApi.AddRoutes(&awsapigatewayv2.AddRoutesOptions{
