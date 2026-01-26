@@ -24,9 +24,17 @@ type TurnCredentials struct {
 	URIs     []string `json:"uris"`
 }
 
+// CustomTurnConfig holds user-provided TURN credentials
+type CustomTurnConfig struct {
+	URL      string
+	Username string
+	Password string
+}
+
 // NewICEAgent creates a new ICE agent configured with our STUN/TURN servers.
-// It fetches ephemeral credentials from the AuthAPI if needed.
-func NewICEAgent(ctx context.Context, isControlling bool) (*ice.Agent, error) {
+// It fetches ephemeral credentials from the AuthAPI if custom config is nil.
+// If custom config is provided, it uses that instead.
+func NewICEAgent(ctx context.Context, isControlling bool, customTurn *CustomTurnConfig) (*ice.Agent, error) {
 	// 1. Configure ICE Servers
 	urls := []*ice.URL{}
 
@@ -37,25 +45,38 @@ func NewICEAgent(ctx context.Context, isControlling bool) (*ice.Agent, error) {
 	}
 	urls = append(urls, stunURL)
 
-	// TURN (Dynamic Auth)
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(AuthAPI)
-	if err != nil {
-		fmt.Printf("Warning: Failed to fetch TURN credentials: %v\n", err)
+	// TURN Configuration
+	if customTurn != nil && customTurn.URL != "" {
+		// Use User-Provided Relay
+		turnURL, err := ice.ParseURL(customTurn.URL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid custom relay url: %w", err)
+		}
+		turnURL.Username = customTurn.Username
+		turnURL.Password = customTurn.Password
+		urls = append(urls, turnURL)
+		fmt.Printf("Using Custom Relay: %s\n", customTurn.URL)
 	} else {
-		defer resp.Body.Close()
-		var creds TurnCredentials
-		if err := json.NewDecoder(resp.Body).Decode(&creds); err == nil {
-			for _, uri := range creds.URIs {
-				turnURL, err := ice.ParseURL(uri)
-				if err == nil {
-					turnURL.Username = creds.Username
-					turnURL.Password = creds.Password
-					urls = append(urls, turnURL)
-				}
-			}
+		// Use Default (Dynamic Auth)
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(AuthAPI)
+		if err != nil {
+			fmt.Printf("Warning: Failed to fetch TURN credentials: %v\n", err)
 		} else {
-			fmt.Printf("Warning: Failed to decode TURN credentials: %v\n", err)
+			defer resp.Body.Close()
+			var creds TurnCredentials
+			if err := json.NewDecoder(resp.Body).Decode(&creds); err == nil {
+				for _, uri := range creds.URIs {
+					turnURL, err := ice.ParseURL(uri)
+					if err == nil {
+						turnURL.Username = creds.Username
+						turnURL.Password = creds.Password
+						urls = append(urls, turnURL)
+					}
+				}
+			} else {
+				fmt.Printf("Warning: Failed to decode TURN credentials: %v\n", err)
+			}
 		}
 	}
 

@@ -13,16 +13,18 @@ import (
 
 // P2PManager handles the establishment of a P2P connection via ICE & MQTT
 type P2PManager struct {
-	Signaling *signaling.IoTClient
-	Code      string
-	Agent     *ice.Agent
+	Signaling  *signaling.IoTClient
+	Code       string
+	Agent      *ice.Agent
+	TurnConfig *CustomTurnConfig
 }
 
 // NewP2PManager creates a manager for a specific transfer session
-func NewP2PManager(sig *signaling.IoTClient, code string) *P2PManager {
+func NewP2PManager(sig *signaling.IoTClient, code string, turnCfg *CustomTurnConfig) *P2PManager {
 	return &P2PManager{
-		Signaling: sig,
-		Code:      code,
+		Signaling:  sig,
+		Code:       code,
+		TurnConfig: turnCfg,
 	}
 }
 
@@ -30,7 +32,7 @@ func NewP2PManager(sig *signaling.IoTClient, code string) *P2PManager {
 // It acts as the Offerer if isOfferer is true (Receiver role), otherwise as Answerer (Sender role).
 func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (net.PacketConn, error) {
 	// 1. Create ICE Agent
-	agent, err := NewICEAgent(ctx, isOfferer) // Defined in ice.go
+	agent, err := NewICEAgent(ctx, isOfferer, m.TurnConfig) // Defined in ice.go
 	if err != nil {
 		return nil, err
 	}

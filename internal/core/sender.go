@@ -34,7 +34,7 @@ const (
 )
 
 // RunSender handles the main sending logic
-func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, timeout time.Duration, forceTar, forceZip bool, noHistory bool) {
+func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, timeout time.Duration, forceTar, forceZip bool, noHistory bool, turnCfg *transport.CustomTurnConfig) {
 	startTime := time.Now()
 	var finalErr error
 	var fileSize int64
@@ -219,7 +219,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		defer sigClient.Disconnect()
 
 		// Initialize P2P manager and wait for connection.
-		p2p := transport.NewP2PManager(sigClient, code)
+		p2p := transport.NewP2PManager(sigClient, code, turnCfg)
 
 		// This blocks until ICE connects
 		pc, err := p2p.EstablishConnection(ctx, false) // false = Answerer (Sender)

@@ -29,7 +29,7 @@ import (
 )
 
 // RunReceiver handles the main receiving logic
-func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int) {
+func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -113,7 +113,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 			sigClient, errSig := signaling.NewIoTClient(context.Background(), "receiver-"+code)
 			if errSig == nil {
 				defer sigClient.Disconnect()
-				p2p := transport.NewP2PManager(sigClient, code)
+				p2p := transport.NewP2PManager(sigClient, code, turnCfg)
 				pc, errIce := p2p.EstablishConnection(context.Background(), true) // true = Offerer (Receiver)
 				if errIce == nil {
 					sendMsg(ui.StatusMsg("P2P (ICE) Connected! Switching transport..."))
