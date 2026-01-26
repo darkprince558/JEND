@@ -11,8 +11,9 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awscognito"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsdynamodb"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
-	"github.com/aws/aws-cdk-go/awscdk/v2/awsecs"
-	"github.com/aws/aws-cdk-go/awscdk/v2/awselasticloadbalancingv2"
+
+	//"github.com/aws/aws-cdk-go/awscdk/v2/awsecs"
+	//"github.com/aws/aws-cdk-go/awscdk/v2/awselasticloadbalancingv2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiot"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"
@@ -148,9 +149,9 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 	// Avoid unused variable error if we don't use it elsewhere, though CfnOutput self-registers.
 	_ = iotEndpointPr
 
-	// --- Phase 2: STUN Server ---
+	// --- Phase 2: TURN/STUN Relay (EC2) ---
 
-	// 7. VPC (Public only for cost efficiency)
+	// 7. VPC (Reuse creation logic but simpler)
 	vpc := awsec2.NewVpc(stack, jsii.String("JendVpc"), &awsec2.VpcProps{
 		MaxAzs: jsii.Number(2),
 		SubnetConfiguration: &[]*awsec2.SubnetConfiguration{
@@ -162,94 +163,6 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		},
 		NatGateways: jsii.Number(0),
 	})
-
-	// 8. ECS Cluster
-	cluster := awsecs.NewCluster(stack, jsii.String("JendCluster"), &awsecs.ClusterProps{
-		Vpc: vpc,
-	})
-
-	// 9. Security Group for STUN
-	stunSg := awsec2.NewSecurityGroup(stack, jsii.String("StunSg"), &awsec2.SecurityGroupProps{
-		Vpc:              vpc,
-		Description:      jsii.String("Allow STUN UDP traffic"),
-		AllowAllOutbound: jsii.Bool(true),
-	})
-	stunSg.AddIngressRule(
-		awsec2.Peer_AnyIpv4(),
-		awsec2.Port_Udp(jsii.Number(3478)),
-		jsii.String("Allow STUN UDP"),
-		nil,
-	)
-	// NLB Health Checks usually use TCP. Coturn supports TCP 3478 too.
-	stunSg.AddIngressRule(
-		awsec2.Peer_AnyIpv4(),
-		awsec2.Port_Tcp(jsii.Number(3478)),
-		jsii.String("Allow STUN TCP (Health Check)"),
-		nil,
-	)
-
-	// 10. Fargate Task Definition
-	taskDef := awsecs.NewFargateTaskDefinition(stack, jsii.String("StunTask"), &awsecs.FargateTaskDefinitionProps{
-		MemoryLimitMiB: jsii.Number(512),
-		Cpu:            jsii.Number(256),
-	})
-
-	// Coturn container
-	container := taskDef.AddContainer(jsii.String("Coturn"), &awsecs.ContainerDefinitionOptions{
-		Image: awsecs.ContainerImage_FromRegistry(jsii.String("coturn/coturn"), nil),
-		Logging: awsecs.LogDriver_AwsLogs(&awsecs.AwsLogDriverProps{
-			StreamPrefix: jsii.String("JendStun"),
-		}),
-		Command: jsii.Strings("-n", "--log-file=stdout", "--listening-port=3478", "--listening-ip=0.0.0.0"),
-	})
-
-	container.AddPortMappings(&awsecs.PortMapping{
-		ContainerPort: jsii.Number(3478),
-		Protocol:      awsecs.Protocol_UDP,
-	})
-
-	// 11. Network Load Balancer (for STUN/GA)
-	nlb := awselasticloadbalancingv2.NewNetworkLoadBalancer(stack, jsii.String("StunNlb"), &awselasticloadbalancingv2.NetworkLoadBalancerProps{
-		Vpc:              vpc,
-		InternetFacing:   jsii.Bool(true),
-		LoadBalancerName: jsii.String("JendStunNlbV4"),
-	})
-
-	stunListener := nlb.AddListener(jsii.String("StunListener"), &awselasticloadbalancingv2.BaseNetworkListenerProps{
-		Port:     jsii.Number(3478),
-		Protocol: awselasticloadbalancingv2.Protocol_UDP,
-	})
-
-	// 12. Fargate Service
-	fargateService := awsecs.NewFargateService(stack, jsii.String("StunService"), &awsecs.FargateServiceProps{
-		Cluster:        cluster,
-		TaskDefinition: taskDef,
-		DesiredCount:   jsii.Number(1),
-		AssignPublicIp: jsii.Bool(true),
-		SecurityGroups: &[]awsec2.ISecurityGroup{stunSg},
-	})
-
-	// Register Fargate service as NLB target
-	stunListener.AddTargets(jsii.String("StunTarget"), &awselasticloadbalancingv2.AddNetworkTargetsProps{
-		Port: jsii.Number(3478),
-		Targets: &[]awselasticloadbalancingv2.INetworkLoadBalancerTarget{
-			fargateService.LoadBalancerTarget(&awsecs.LoadBalancerTargetOptions{
-				ContainerName: jsii.String("Coturn"),
-				ContainerPort: jsii.Number(3478),
-				Protocol:      awsecs.Protocol_UDP,
-			}),
-		},
-		HealthCheck: &awselasticloadbalancingv2.HealthCheck{
-			Protocol:                awselasticloadbalancingv2.Protocol_TCP,
-			Port:                    jsii.String("3478"),
-			Interval:                awscdk.Duration_Seconds(jsii.Number(10)),
-			Timeout:                 awscdk.Duration_Seconds(jsii.Number(10)),
-			HealthyThresholdCount:   jsii.Number(2),
-			UnhealthyThresholdCount: jsii.Number(2),
-		},
-	})
-
-	// --- Phase 2 Part 2: TURN Relay (EC2) ---
 
 	// 13. TURN Security Group
 	turnSg := awsec2.NewSecurityGroup(stack, jsii.String("TurnSg"), &awsec2.SecurityGroupProps{
@@ -267,7 +180,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 
 	// 14. EC2 Instance (t3.small for dev)
 
-	// 13a. TURN Secret
+	// 13a. TURN Secret (Ensure rotation/update)
 	turnSecret := awssecretsmanager.NewSecret(stack, jsii.String("TurnSecret"), &awssecretsmanager.SecretProps{
 		GenerateSecretString: &awssecretsmanager.SecretStringGenerator{
 			SecretStringTemplate: jsii.String("{}"),
@@ -298,8 +211,9 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		jsii.String("echo 'realm=jend.local' >> /etc/coturn/turnserver.conf"),
 		jsii.String("echo 'use-auth-secret' >> /etc/coturn/turnserver.conf"), // Enable Dynamic Auth
 		jsii.String("echo \"static-auth-secret=$SECRET\" >> /etc/coturn/turnserver.conf"),
+		jsii.String("# Force Update 2"),
 		jsii.String("systemctl enable coturn"),
-		jsii.String("systemctl start coturn"),
+		jsii.String("systemctl restart coturn"),
 	)
 
 	turnInstance := awsec2.NewInstance(stack, jsii.String("TurnInstance"), &awsec2.InstanceProps{
@@ -315,6 +229,11 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 	// Add SSM permissions and Secrets Manager Access
 	turnInstance.Role().AddManagedPolicy(awsiam.ManagedPolicy_FromAwsManagedPolicyName(jsii.String("AmazonSSMManagedInstanceCore")))
 	turnSecret.GrantRead(turnInstance.Role(), nil)
+
+	// 14b. Elastic IP - Stable IP for TURN
+	eip := awsec2.NewCfnEIP(stack, jsii.String("TurnEip"), &awsec2.CfnEIPProps{
+		InstanceId: turnInstance.InstanceId(),
+	})
 
 	// 15. TURN Auth Lambda (New for Phase 4)
 	turnAuthFunc := awslambda.NewFunction(stack, jsii.String("TurnAuthFunction"), &awslambda.FunctionProps{
@@ -354,17 +273,9 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Integration: authIntegration,
 	})
 
-	// 15. Global Accelerator REMOVED due to subscription requirement.
-	// We rely on the NLB DNS for STUN and EC2 IP for TURN.
-
-	// Output NLB DNS
-	awscdk.NewCfnOutput(stack, jsii.String("StunNlbDns"), &awscdk.CfnOutputProps{
-		Value: nlb.LoadBalancerDnsName(),
-	})
-
-	// Output TURN IP (EC2 Public)
+	// Output TURN IP (Elastic IP)
 	awscdk.NewCfnOutput(stack, jsii.String("TurnInstanceIp"), &awscdk.CfnOutputProps{
-		Value: turnInstance.InstancePublicIp(),
+		Value: eip.Ref(),
 	})
 
 	// 17. Cognito Identity Pool

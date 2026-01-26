@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	StunServer = "stun:JendStunNlb-2b12221fe31dc2ca.elb.us-east-1.amazonaws.com:3478"
+	StunServer = "stun:stun.l.google.com:19302"
 	AuthAPI    = "https://k4fa8k5sjg.execute-api.us-east-1.amazonaws.com/turn-auth"
 )
 
