@@ -93,65 +93,69 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 	// Create a transport early
 	tr := transport.NewQUICTransport()
 
+	// Dialer Strategy Pattern
+	// We determine HOW to connect (Direct IP or ICE P2P) and store it in this function.
+	var dialFunc func(context.Context) (*quic.Conn, error)
+	var connectionDesc string
+
 	// Try Discovery
-	address := "localhost:" + Port
+	// address := "localhost:" + Port // Removed unused var
 	foundIP, err := discovery.FindSender(code, 2*time.Second) // Reduced local timeout
 	if err == nil {
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender at %s!", foundIP)))
-		address = foundIP
+		dialectAddr := foundIP
+		connectionDesc = foundIP
+		dialFunc = func(ctx context.Context) (*quic.Conn, error) {
+			return tr.Dial(dialectAddr)
+		}
 	} else {
 		sendMsg(ui.StatusMsg("Local discovery timed out, checking Cloud Registry..."))
 		cloudIP, errCloud := discovery.LookupCloud(code)
 		if errCloud == nil {
 			sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender via Cloud at %s!", cloudIP)))
-			address = cloudIP
+			dialectAddr := cloudIP
+			connectionDesc = cloudIP
+			dialFunc = func(ctx context.Context) (*quic.Conn, error) {
+				return tr.Dial(dialectAddr)
+			}
 		} else {
 			sendMsg(ui.StatusMsg("Cloud lookup failed. Initiating P2P Signaling (ICE)..."))
 
-			// Start P2P Negotiation in background (blocking dial fallback)
-			// For PoC: We try to signal and get an agent.
+			// Start P2P Negotiation (Blocking for setup)
 			sigClient, errSig := signaling.NewIoTClient(context.Background(), "receiver-"+code)
 			if errSig == nil {
-				defer sigClient.Disconnect()
+				// Note: We keep sigClient connected if P2P manager needs it, or strictly for setup.
+				// The p2p manager currently uses it for signaling exchange then ICE takes over.
+				// We can disconnect after ICE is established, but let's defer carefully.
+				// defer sigClient.Disconnect() // Defer runs at function exit.
+
 				p2p := transport.NewP2PManager(sigClient, code, turnCfg)
 				pc, errIce := p2p.EstablishConnection(context.Background(), true) // true = Offerer (Receiver)
+
+				// We can disconnect signaling now that ICE is set
+				sigClient.Disconnect()
+
 				if errIce == nil {
 					sendMsg(ui.StatusMsg("P2P (ICE) Connected! Switching transport..."))
-
-					// Use the ICE connection for QUIC
-					// We can reuse the existing 'tr' (QUICTransport)
-					// But we need to update the dial logic or just dial here?
-					// RunReceiver continues to loop 'Dial'.
-					// We should probably override 'address' and 'tr' here or set a flag?
-					// Actually, simpler: Perform the handshake here and set 'conn' variable? Use a different flow.
-					// BUT to keep it simple with existing loop:
-
-					// We'll just define a valid fake address, but we need to dial using DialPacket.
-					// Since 'tr' doesn't store the connection, we can't just change 'tr'.
-					// We should call 'tr.DialPacket' here and handle the session.
-
-					qConn, errQ := tr.DialPacket(pc, nil)
-					if errQ == nil {
-						sendMsg(ui.StatusMsg("QUIC over ICE Established!"))
-						// Hand over to handleReceiveSession
-						// But we rely on Main Loop?
-						// Let's break the loop structure logic for this fallback path or wrap it?
-						// For PoC compliance:
-						stream, errS := qConn.OpenStreamSync(context.Background())
-						if errS == nil {
-							handleReceiveSession(qConn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg, concurrency)
-							return // Done
-						}
+					connectionDesc = "via P2P ICE"
+					dialFunc = func(ctx context.Context) (*quic.Conn, error) {
+						return tr.DialPacket(pc, nil)
 					}
-					sendMsg(ui.StatusMsg(fmt.Sprintf("QUIC over ICE Failed: %v", errQ)))
 				} else {
 					sendMsg(ui.StatusMsg(fmt.Sprintf("P2P ICE Failed: %v", errIce)))
 				}
 			} else {
 				sendMsg(ui.StatusMsg(fmt.Sprintf("Signaling Auth Failed: %v", errSig)))
 			}
+		}
+	}
 
-			sendMsg(ui.StatusMsg("Fallback exhausted. trying localhost..."))
+	// Fallback to Localhost if everything failed (Legacy/Testing)
+	if dialFunc == nil {
+		sendMsg(ui.StatusMsg("Fallback exhausted. Defaulting to localhost dial..."))
+		connectionDesc = "localhost"
+		dialFunc = func(ctx context.Context) (*quic.Conn, error) {
+			return tr.Dial("localhost:" + Port)
 		}
 	}
 
@@ -163,8 +167,11 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 
 	for {
 
-		sendMsg(ui.StatusMsg("Dialing " + address + "..."))
-		conn, err := tr.Dial(address)
+		sendMsg(ui.StatusMsg("Dialing " + connectionDesc + "..."))
+
+		// Use the strategy
+		conn, err := dialFunc(context.Background())
+
 		if err != nil {
 			retryCount++
 			if retryCount > maxRetries {

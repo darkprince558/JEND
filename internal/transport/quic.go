@@ -17,8 +17,17 @@ import (
 
 // Transport defines the interface for our networking layer
 type Transport interface {
-	Listen(port string) (*quic.Listener, error)
+	Listen(port string) (QUICListener, error)
 	Dial(addr string) (*quic.Conn, error)
+	ListenPacket(conn net.PacketConn) (QUICListener, error)
+	DialPacket(conn net.PacketConn, addr net.Addr) (*quic.Conn, error)
+}
+
+// QUICListener abstracts *quic.Listener to allow MultiListener implementation
+type QUICListener interface {
+	Accept(context.Context) (*quic.Conn, error)
+	Close() error
+	Addr() net.Addr
 }
 
 // QUICTransport implements Transport using quic-go
@@ -31,7 +40,7 @@ func NewQUICTransport() *QUICTransport {
 
 // Listen starts a QUIC listener on the specified port.
 // It creates a UDP PacketConn internally.
-func (t *QUICTransport) Listen(port string) (*quic.Listener, error) {
+func (t *QUICTransport) Listen(port string) (QUICListener, error) {
 	tlsConf, err := generateTLSConfig()
 	if err != nil {
 		return nil, err
@@ -41,7 +50,7 @@ func (t *QUICTransport) Listen(port string) (*quic.Listener, error) {
 }
 
 // ListenPacket starts a QUIC listener on an existing PacketConn (e.g. from ICE).
-func (t *QUICTransport) ListenPacket(conn net.PacketConn) (*quic.Listener, error) {
+func (t *QUICTransport) ListenPacket(conn net.PacketConn) (QUICListener, error) {
 	tlsConf, err := generateTLSConfig()
 	if err != nil {
 		return nil, err

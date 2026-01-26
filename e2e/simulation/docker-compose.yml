@@ -1,0 +1,54 @@
+services:
+  # The Relay Server (Public Internet)
+  coturn:
+    image: coturn/coturn
+    container_name: jend-relay
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-port=3478
+      - --fingerprint
+      - --lt-cred-mech
+      - --realm=jend.local
+      - --user=user:password
+      - --external-ip=127.0.0.1
+    networks:
+      - internet
+
+  # Sender (Simulated Home Network)
+  sender:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/Dockerfile
+    container_name: jend-sim-sender
+    cap_add:
+      - NET_ADMIN # Needed for tc/iptables network manipulation
+    volumes:
+      - ../..:/app
+    networks:
+      - internet
+    depends_on:
+      - coturn
+    # Keep alive command
+    command: tail -f /dev/null
+
+  # Receiver (Simulated Office Network)
+  receiver:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/Dockerfile
+    container_name: jend-sim-receiver
+    cap_add:
+      - NET_ADMIN # Needed for tc/iptables network manipulation
+    volumes:
+      - ../..:/app
+    networks:
+      - internet
+    depends_on:
+      - coturn
+    # Keep alive command
+    command: tail -f /dev/null
+
+networks:
+  internet:
+    driver: bridge

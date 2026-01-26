@@ -190,12 +190,19 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 	// Start Listener
 	tr := transport.NewQUICTransport()
-	listener, err := tr.Listen(Port)
+
+	// Create MultiListener to handle Direct + P2P
+	multiListener := transport.NewMultiListener()
+	defer multiListener.Close()
+
+	// 1. Direct Listener (Port 9000)
+	directListener, err := tr.Listen(Port)
 	if err != nil {
 		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
 		return
 	}
+	multiListener.Add(directListener)
 
 	// Start Advertising
 	stopAdvertising, err := discovery.StartAdvertising(9000, code)
@@ -207,18 +214,17 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	}
 
 	// Start Signaling (MQTT)
-	// We do this in background to not block if credentials fail (security audit: need better creds)
 	go func() {
 		sendMsg(ui.StatusMsg("Connecting to Signaling Network..."))
 		sigClient, err := signaling.NewIoTClient(context.Background(), "sender-"+code)
 		if err != nil {
-			sendMsg(ui.StatusMsg(fmt.Sprintf("Signaling failed: %v (Is AWS configured?)", err)))
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Signaling failed: %v", err)))
 			return
 		}
-		sendMsg(ui.StatusMsg("Signaling Connected. Waiting for peer..."))
+		// sendMsg(ui.StatusMsg("Signaling Connected. Waiting for peer..."))
 		defer sigClient.Disconnect()
 
-		// Initialize P2P manager and wait for connection.
+		// Initialize P2P manager
 		p2p := transport.NewP2PManager(sigClient, code, turnCfg)
 
 		// This blocks until ICE connects
@@ -227,24 +233,18 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			sendMsg(ui.StatusMsg(fmt.Sprintf("P2P Signaling failed: %v", err)))
 			return
 		}
-		sendMsg(ui.StatusMsg("P2P (ICE) Connected! Handing over to QUIC..."))
+		sendMsg(ui.StatusMsg("P2P (ICE) Connected! Joining listener pool..."))
 
-		// Start QUIC Listener on ICE connection
+		// 2. Start QUIC Listener on ICE connection
 		iceListener, err := tr.ListenPacket(pc)
 		if err != nil {
-			sendMsg(ui.StatusMsg(fmt.Sprintf("Failed to start QUIC over ICE: %v", err)))
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Failed to listen on ICE: %v", err)))
 			return
 		}
 
-		// Replace the global listener (or handle carefully).
-		// Currently 'listener' in outer scope is bound to Port 9000 (Direct).
-		// We want to accept on ICE too.
-		// For this PoC, we will just log success and ideally spin up a loop to accept from ICE too.
-		sendMsg(ui.StatusMsg("ICE-QUIC Tunnel Established! (Dual-Mode Active)"))
-
-		// In a full implementation, we would multiplex or replace the listener.
-		// Here we just prove binding works to satisfy the TODO.
-		_ = iceListener
+		// Add to MultiListener
+		multiListener.Add(iceListener)
+		sendMsg(ui.StatusMsg("ICE Tunnel Active (Dual-Mode)"))
 	}()
 
 	// Wait for connection Loop
@@ -269,7 +269,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 		// Use Passed Context for Accept (handles cancellation)
 		acceptCtx, cancel := context.WithTimeout(ctx, timeout-time.Since(startTime))
-		conn, err := listener.Accept(acceptCtx)
+		conn, err := multiListener.Accept(acceptCtx)
 		cancel()
 
 		if err != nil {
@@ -287,7 +287,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			return
 		}
 
-		sendMsg(ui.StatusMsg("Receiver connected! Opening stream..."))
+		sendMsg(ui.StatusMsg(fmt.Sprintf("Receiver connected (%s)! Opening stream...", conn.RemoteAddr())))
 
 		// Parallel Stream Handling Loop
 		var wg sync.WaitGroup
@@ -316,7 +316,6 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 				_, err := handleConnection(ctx, s, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg, false)
 				if err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "cancelled") {
-					// Log unexpected errors
 					// sendMsg(ui.ErrorMsg(err))
 				}
 			}(stream, isFirst)
