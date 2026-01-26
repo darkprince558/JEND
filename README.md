@@ -5,6 +5,7 @@ JEND is a modern, high-speed file transfer tool designed for the command line. I
 ## Why Jend?
 
 * **Blazing Fast**: Built on **QUIC**, providing fast connection establishment and eliminating head-of-line blocking. Large files (>100MB) are automatically accelerated using **Parallel Streaming**.
+* **Global P2P**: Uses **ICE (STUN/TURN)** to punch through NATs and firewalls, allowing transfers across different networks (e.g. Home to Office).
 * **Secure by Default**: Uses **True PAKE** (Password-Authenticated Key Exchange) for secure, mutual authentication. No data is stored on intermediaries.
 * **Resilient**: Automatic network discovery (mDNS) finds peers on your LAN instantly. Transfers automatically **resume** if the connection drops.
 * **Privacy First**: Incognito mode for ephemeral transfers without logs or clipboard traces.
@@ -124,14 +125,18 @@ This runs:
 
 ---
 
+## Configuration
+
+You can configure JEND using environment variables:
+
+* `JEND_IDENTITY_POOL_ID`: Override the AWS Cognito Identity Pool ID for signaling.
+
+---
+
 ## Roadmap
 
-* **Advanced Networking**:
-  * **P2P Hole Punching**: NAT traversal for internet-wide transfers.
-  * **IPv6 Support**: Full IPv6 compatibility.
 * **Platform Support**:
   * **Mobile App**: Android/iOS client.
   * **Web Client**: Receive directly in-browser via WebTransport.
-
----
-*Note: Currently defaults to direct connection (LAN). Use in trusted networks or tunnel accordingly.*
+* **Advanced**:
+  * **IPv6 Support**: Full IPv6 compatibility.
