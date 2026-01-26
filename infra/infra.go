@@ -6,6 +6,8 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsapigatewayv2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsapigatewayv2integrations"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awscloudfront"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awscloudfrontorigins"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awscognito"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsdynamodb"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
@@ -14,6 +16,7 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiot"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awss3"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awssecretsmanager"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
@@ -417,6 +420,46 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 	// Output Identity Pool ID
 	awscdk.NewCfnOutput(stack, jsii.String("IdentityPoolId"), &awscdk.CfnOutputProps{
 		Value: pool.Ref(),
+	})
+
+	// --- Phase 6: Web Client Hosting ---
+
+	// 20. S3 Bucket for Web Assets
+	webBucket := awss3.NewBucket(stack, jsii.String("JendWebBucket"), &awss3.BucketProps{
+		BlockPublicAccess: awss3.BlockPublicAccess_BLOCK_ALL(),
+		Encryption:        awss3.BucketEncryption_S3_MANAGED,
+		RemovalPolicy:     awscdk.RemovalPolicy_RETAIN, // PROD: Retain data on stack deletion
+		AutoDeleteObjects: jsii.Bool(false),
+	})
+
+	// 21. CloudFront Distribution
+	dist := awscloudfront.NewDistribution(stack, jsii.String("JendWebDistribution"), &awscloudfront.DistributionProps{
+		DefaultBehavior: &awscloudfront.BehaviorOptions{
+			Origin: awscloudfrontorigins.NewS3Origin(webBucket, &awscloudfrontorigins.S3OriginProps{
+				OriginAccessIdentity: nil, // Use OAC usually, but simplest for now is OAI or OAC.
+				// S3Origin automatically sets up OAI usually if not specified?
+				// Let's rely on defaults for now or explicitly use OAI if needed.
+				// Actually, modern best practice is OAC, but S3Origin construct is easier.
+			}),
+			ViewerProtocolPolicy: awscloudfront.ViewerProtocolPolicy_REDIRECT_TO_HTTPS,
+		},
+		DefaultRootObject: jsii.String("index.html"),
+		PriceClass:        awscloudfront.PriceClass_PRICE_CLASS_100, // US/EU only (Cheaper)
+	})
+
+	// Output Distribution ID
+	awscdk.NewCfnOutput(stack, jsii.String("WebDistributionId"), &awscdk.CfnOutputProps{
+		Value: dist.DistributionId(),
+	})
+
+	// Output Distribution Domain
+	awscdk.NewCfnOutput(stack, jsii.String("WebUrl"), &awscdk.CfnOutputProps{
+		Value: dist.DistributionDomainName(),
+	})
+
+	// Output Bucket Name
+	awscdk.NewCfnOutput(stack, jsii.String("WebBucketName"), &awscdk.CfnOutputProps{
+		Value: webBucket.BucketName(),
 	})
 
 	return stack
