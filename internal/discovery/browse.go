@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -43,10 +44,22 @@ func FindSender(code string, timeout time.Duration) (string, error) {
 					h := strings.TrimPrefix(txt, "hash=")
 					if h == targetHash {
 						// Match Found!
-						if len(entry.AddrIPv4) > 0 {
+						// Match Found!
+						// Prefer IPv6 for local link (usually better for P2P/AirDrop-like behavior)
+						// But for now, let's just return the first available address.
+						var ip net.IP
+						if len(entry.AddrIPv6) > 0 {
+							ip = entry.AddrIPv6[0]
+						} else if len(entry.AddrIPv4) > 0 {
+							ip = entry.AddrIPv4[0]
+						}
+
+						if ip != nil {
 							port := entry.Port
-							ip := entry.AddrIPv4[0]
-							return fmt.Sprintf("%s:%d", ip, port), nil
+							// Format IPv6 address correctly [::1]:port
+							// internal/transport/quic.go Dial function expects "host:port" or "[host]:port"
+							// net.JoinHostPort handles this.
+							return net.JoinHostPort(ip.String(), fmt.Sprintf("%d", port)), nil
 						}
 					}
 				}

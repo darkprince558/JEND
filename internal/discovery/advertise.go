@@ -22,7 +22,7 @@ func StartAdvertising(port int, code string) (func(), error) {
 		"local.",
 		port,
 		txt,
-		nil, // Check all interfaces
+		nil, // Check all interfaces (IPv4 and IPv6)
 	)
 	if err != nil {
 		return nil, err
