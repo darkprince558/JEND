@@ -18,6 +18,7 @@ const (
 	StateTransferring
 	StateDone
 	StateError
+	StateConfirm
 )
 
 type Role int
@@ -30,6 +31,12 @@ const (
 // Messages
 type StatusMsg string
 type ErrorMsg error
+type RequestApprovalMsg struct {
+	Name string
+	Size int64
+	Resp chan bool
+}
+
 type ProgressMsg struct {
 	SentBytes  int64
 	TotalBytes int64
@@ -53,6 +60,10 @@ type Model struct {
 	Status        string
 	Err           error
 	Exit          bool
+	// Confirmation State
+	ConfirmResp chan bool
+	ConfirmName string
+	ConfirmSize int64
 }
 
 func NewModel(role Role, filename string, code string) Model {
@@ -91,7 +102,22 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.State == StateConfirm {
+			if msg.String() == "y" || msg.String() == "Y" {
+				m.ConfirmResp <- true
+				m.State = StateTransferring // Optimistic
+				return m, nil
+			} else if msg.String() == "n" || msg.String() == "N" {
+				m.ConfirmResp <- false
+				m.Exit = true
+				return m, tea.Quit
+			}
+		}
+
 		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
+			if m.State == StateConfirm {
+				m.ConfirmResp <- false // Safety cancel
+			}
 			m.Exit = true
 			return m, tea.Quit
 		}
@@ -100,6 +126,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.Spinner, cmd = m.Spinner.Update(msg)
 		return m, cmd
+
+	case RequestApprovalMsg:
+		m.State = StateConfirm
+		m.ConfirmName = msg.Name
+		m.ConfirmSize = msg.Size
+		m.ConfirmResp = msg.Resp
+		return m, nil
 
 	case progress.FrameMsg:
 		// Update both bars (animations)
@@ -217,6 +250,30 @@ func (m Model) View() string {
 			bars,
 			"\n",
 			StatusStyle.Render(m.Status),
+		)
+
+	case StateConfirm:
+		header := TitleStyle.Render("INCOMING FILE REQUEST")
+
+		infoBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorSecondary).
+			Padding(1, 2).
+			Render(
+				fmt.Sprintf("Sender wants to send:\n\n%s\n%s",
+					lipgloss.NewStyle().Bold(true).Render(m.ConfirmName),
+					lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(fmt.Sprintf("%d MB", m.ConfirmSize/1024/1024)),
+				),
+			)
+
+		prompt := lipgloss.NewStyle().Blink(true).Render("Accept? (y/n)")
+
+		content = lipgloss.JoinVertical(lipgloss.Center,
+			header,
+			"\n",
+			infoBox,
+			"\n\n",
+			prompt,
 		)
 
 	case StateDone:

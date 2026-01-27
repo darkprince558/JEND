@@ -29,7 +29,7 @@ import (
 )
 
 // RunReceiver handles the main receiving logic
-func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig) {
+func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig, autoApprove bool) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -197,7 +197,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 		}
 
 		// Handle Session
-		done, size, hash, err := handleReceiveSession(conn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg, concurrency)
+		done, size, hash, err := handleReceiveSession(conn, stream, code, outputDir, autoUnzip, noClipboard, sendMsg, concurrency, autoApprove, p)
 		fileSize = size
 		fileHash = hash
 
@@ -233,6 +233,8 @@ func handleReceiveSession(
 	noClipboard bool,
 	sendMsg func(tea.Msg),
 	concurrency int,
+	autoApprove bool,
+	p *tea.Program,
 ) (bool, int64, string, error) {
 	var fileSize int64
 	var fileHash string
@@ -270,6 +272,32 @@ func handleReceiveSession(
 		return false, 0, "", err
 	}
 	fileSize = meta.Size
+
+	// ---- CONFIRMATION PROMPT ----
+	if !autoApprove {
+		// If we are in TUI mode
+		if p != nil {
+			respChan := make(chan bool)
+			p.Send(ui.RequestApprovalMsg{
+				Name: meta.Name,
+				Size: meta.Size,
+				Resp: respChan,
+			})
+
+			// Wait for user Answer
+			accepted := <-respChan
+			if !accepted {
+				// Send Cancel to Sender
+				protocol.EncodeHeader(stream, protocol.TypeCancel, 0)
+				return false, 0, "", fmt.Errorf("transfer cancelled by user")
+			}
+		}
+		// If Headless, we default to ACCEPT because --headless usually implies automation,
+		// OR we could reject. The plan said "Headless returns true".
+		// Actually, if they didn't pass --yes in headless, maybe we should warn?
+		// But for now, let's stick to: Headless = Auto Accept (Standard unix tool behavior)
+	}
+	// -----------------------------
 
 	// Handle Text Mode
 	if meta.Type == "text" {
