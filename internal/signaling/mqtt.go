@@ -25,53 +25,63 @@ type IoTClient struct {
 
 // NewIoTClient creates a new authenticated MQTT client.
 func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
-	// 1. Get AWS Credentials via Cognito
-	// TODO: Externalize IdentityPoolID configuration.
-	identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
-	if identityPoolID == "" {
-		identityPoolID = "us-east-1:63825811-2a43-4a2b-893c-ce78d256819d"
-	}
+	// Check for custom endpoint (Testing/Local)
+	customEndpoint := os.Getenv("JEND_MQTT_ENDPOINT")
+	var brokerURL string
 
-	// Initial config to get region/defaults
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-	if err != nil {
-		return nil, fmt.Errorf("failed to load base aws config: %w", err)
-	}
+	if customEndpoint != "" {
+		brokerURL = customEndpoint
+		// Skip AWS Signing and Credential Retrieval for custom/local broker
+	} else {
+		// 1. Get AWS Credentials via Cognito
+		// TODO: Externalize IdentityPoolID configuration.
+		identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
+		if identityPoolID == "" {
+			identityPoolID = "us-east-1:63825811-2a43-4a2b-893c-ce78d256819d"
+		}
 
-	// Use Cognito Provider
-	credsProvider := auth.NewCognitoProvider(cfg, identityPoolID)
+		// Initial config to get region/defaults
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load base aws config: %w", err)
+		}
 
-	// Reload config with credentials provider
-	cfg, err = config.LoadDefaultConfig(ctx,
-		config.WithRegion(region),
-		config.WithCredentialsProvider(credsProvider),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load aws config with cognito: %w", err)
-	}
+		// Use Cognito Provider
+		credsProvider := auth.NewCognitoProvider(cfg, identityPoolID)
 
-	creds, err := cfg.Credentials.Retrieve(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve aws credentials: %w", err)
-	}
+		// Reload config with credentials provider
+		cfg, err = config.LoadDefaultConfig(ctx,
+			config.WithRegion(region),
+			config.WithCredentialsProvider(credsProvider),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load aws config with cognito: %w", err)
+		}
 
-	// 2. Sign the Websocket URL
-	// AWS IoT Core supports WSS on port 443 with SigV4
-	signer := v4.NewSigner()
-	req, _ := http.NewRequest("GET", fmt.Sprintf("wss://%s/mqtt", iotEndpoint), nil)
+		creds, err := cfg.Credentials.Retrieve(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve aws credentials: %w", err)
+		}
 
-	// Sign the request
-	// We need to sign with service "iotdevicegateway"
-	// Payload hash for GET is empty string hash
-	emptyHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	err = signer.SignHTTP(ctx, creds, req, emptyHash, "iotdevicegateway", region, time.Now())
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign websocket request: %w", err)
+		// 2. Sign the Websocket URL
+		// AWS IoT Core supports WSS on port 443 with SigV4
+		signer := v4.NewSigner()
+		req, _ := http.NewRequest("GET", fmt.Sprintf("wss://%s/mqtt", iotEndpoint), nil)
+
+		// Sign the request
+		// We need to sign with service "iotdevicegateway"
+		// Payload hash for GET is empty string hash
+		emptyHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		err = signer.SignHTTP(ctx, creds, req, emptyHash, "iotdevicegateway", region, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("failed to sign websocket request: %w", err)
+		}
+		brokerURL = req.URL.String()
 	}
 
 	// 3. Configure MQTT Client
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(req.URL.String())
+	opts.AddBroker(brokerURL)
 	opts.SetClientID(clientID)
 	opts.SetCleanSession(true)
 	opts.SetAutoReconnect(true)

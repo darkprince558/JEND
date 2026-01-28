@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"net"
+
 	"github.com/darkprince558/jend/internal/audit"
 )
 
@@ -40,6 +42,19 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func getFreePort() (string, error) {
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return "", err
+	}
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return "", err
+	}
+	defer l.Close()
+	return fmt.Sprintf("%d", l.Addr().(*net.TCPAddr).Port), nil
+}
+
 func TestFileTransfer(t *testing.T) {
 	// Setup
 	srcFile := "test_data/payload.txt"
@@ -51,7 +66,11 @@ func TestFileTransfer(t *testing.T) {
 	os.RemoveAll(outDir)
 
 	// Start Sender
-	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless")
+	port, err := getFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port: %v", err)
+	}
+	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--port", port)
 	senderOut, err := senderCmd.StdoutPipe()
 	senderCmd.Stderr = os.Stderr
 	if err != nil {
@@ -93,7 +112,7 @@ func TestFileTransfer(t *testing.T) {
 	}
 
 	// Start Receiver
-	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port)
 	receiverCmd.Stdout = os.Stdout
 	receiverCmd.Stderr = os.Stderr
 	if err := receiverCmd.Start(); err != nil {
@@ -145,7 +164,11 @@ func TestLargeFileTransfer(t *testing.T) {
 	// Reuse sender/receiver logic with large file.
 
 	// Start Sender
-	senderCmd := exec.Command(binaryPath, "send", largeFileName, "--headless", "--no-history", "--no-clipboard")
+	port, err := getFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	senderCmd := exec.Command(binaryPath, "send", largeFileName, "--headless", "--no-history", "--no-clipboard", "--port", port)
 	// Pipes...
 	senderReader, err := senderCmd.StdoutPipe()
 	if err != nil {
@@ -182,7 +205,7 @@ func TestLargeFileTransfer(t *testing.T) {
 
 	// Start Receiver
 	time.Sleep(2 * time.Second) // Let sender init
-	recvCmd := exec.Command(binaryPath, "receive", code, "--headless", "--no-history", "--no-clipboard", "--dir", "received_large")
+	recvCmd := exec.Command(binaryPath, "receive", code, "--headless", "--no-history", "--no-clipboard", "--dir", "received_large", "--port", port)
 
 	// Pipe output to test stdout for live debugging
 	recvCmd.Stdout = os.Stdout
@@ -216,7 +239,8 @@ func TestAuditLog(t *testing.T) {
 	outDir := "output/audit_test"
 
 	// Sender
-	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless")
+	port, _ := getFreePort()
+	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--port", port)
 	senderOut, _ := senderCmd.StdoutPipe()
 	senderCmd.Start()
 	defer senderCmd.Process.Kill()
@@ -236,7 +260,7 @@ func TestAuditLog(t *testing.T) {
 	}
 
 	// Receiver
-	exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless").Run()
+	exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port).Run()
 
 	// Kill Sender (it loops)
 	if senderCmd.Process != nil {
@@ -290,7 +314,11 @@ func TestResumeSupport(t *testing.T) {
 	os.RemoveAll(outDir)
 
 	// Start Sender
-	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless")
+	port, err := getFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port: %v", err)
+	}
+	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--port", port)
 	senderOut, err := senderCmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("Failed to get sender stdout: %v", err)
@@ -322,7 +350,7 @@ func TestResumeSupport(t *testing.T) {
 	// Step 1: Start Receiver, let it run briefly then kill it to simulate failure
 	// We can't easily control exactly how many bytes...
 	// But we can start it asynchronously and kill it after 100ms.
-	receiverCmd1 := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	receiverCmd1 := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port)
 	receiverCmd1.Stdout = os.Stdout
 	receiverCmd1.Stderr = os.Stderr
 	if err := receiverCmd1.Start(); err != nil {
@@ -365,7 +393,7 @@ func TestResumeSupport(t *testing.T) {
 
 	// Step 2: Start new Receiver (Resume)
 	t.Log("Starting Receiver 2 (Resume)...")
-	receiverCmd2 := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	receiverCmd2 := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port)
 	out, err := receiverCmd2.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Receiver 2 failed: %v\nOutput: %s", err, out)
@@ -404,7 +432,8 @@ func TestSenderCancellation(t *testing.T) {
 	}
 
 	// Start Sender with Delay Env Var
-	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "30s")
+	port, _ := getFreePort()
+	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "30s", "--port", port)
 	senderCmd.Env = append(os.Environ(), "JEND_TEST_DELAY=100ms")
 	var senderStdout bytes.Buffer
 	senderCmd.Stdout = &senderStdout
@@ -431,7 +460,7 @@ func TestSenderCancellation(t *testing.T) {
 	t.Logf("Got Code: %s", code)
 
 	// Start Receiver
-	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port)
 	var receiverStdout bytes.Buffer
 	receiverCmd.Stdout = &receiverStdout
 
@@ -498,7 +527,8 @@ func TestTextTransfer(t *testing.T) {
 	}
 
 	// Start Sender with --text
-	senderCmd := exec.Command(binaryPath, "send", "--text", textContent, "--headless", "--timeout", "10s")
+	port, _ := getFreePort()
+	senderCmd := exec.Command(binaryPath, "send", "--text", textContent, "--headless", "--timeout", "10s", "--port", port)
 	var senderStdout bytes.Buffer
 	senderCmd.Stdout = &senderStdout
 
@@ -524,7 +554,7 @@ func TestTextTransfer(t *testing.T) {
 	t.Logf("Got Code: %s", code)
 
 	// Start Receiver
-	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port)
 	var receiverStdout bytes.Buffer
 	receiverCmd.Stdout = &receiverStdout
 
@@ -598,7 +628,8 @@ func TestBinaryFileTransfer(t *testing.T) {
 	}
 
 	// Start Sender
-	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "30s")
+	port, _ := getFreePort()
+	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "30s", "--port", port)
 	var senderStdout bytes.Buffer
 	senderCmd.Stdout = &senderStdout
 
@@ -626,7 +657,7 @@ func TestBinaryFileTransfer(t *testing.T) {
 	t.Logf("Got Code: %s", code)
 
 	// Start Receiver
-	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port)
 	if out, err := receiverCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Receiver failed: %v\nOutput: %s", err, out)
 	}
@@ -685,7 +716,8 @@ func TestMP4Transfer(t *testing.T) {
 	}
 
 	// Start Sender
-	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "60s")
+	port, _ := getFreePort()
+	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--timeout", "60s", "--port", port)
 	var senderStdout bytes.Buffer
 	senderCmd.Stdout = &senderStdout
 
@@ -711,7 +743,7 @@ func TestMP4Transfer(t *testing.T) {
 	t.Logf("Got Code: %s", code)
 
 	// Start Receiver
-	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless")
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port)
 	if out, err := receiverCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Receiver failed: %v\nOutput: %s", err, out)
 	}
@@ -748,7 +780,8 @@ func TestNoClipboard(t *testing.T) {
 	}
 
 	// Start Sender
-	senderCmd := exec.Command(binaryPath, "send", "--text", textContent, "--headless", "--timeout", "10s")
+	port, _ := getFreePort()
+	senderCmd := exec.Command(binaryPath, "send", "--text", textContent, "--headless", "--timeout", "10s", "--port", port)
 	var senderStdout bytes.Buffer
 	senderCmd.Stdout = &senderStdout
 
@@ -774,7 +807,7 @@ func TestNoClipboard(t *testing.T) {
 	t.Logf("Got Code: %s", code)
 
 	// Start Receiver WITH --no-clipboard
-	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--no-clipboard")
+	receiverCmd := exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--no-clipboard", "--port", port)
 	var receiverStdout bytes.Buffer
 	receiverCmd.Stdout = &receiverStdout
 

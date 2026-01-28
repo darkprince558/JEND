@@ -29,12 +29,11 @@ import (
 )
 
 const (
-	Port      = "9000"
 	ChunkSize = 1024 * 64
 )
 
 // RunSender handles the main sending logic
-func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, timeout time.Duration, forceTar, forceZip bool, noHistory bool, turnCfg *transport.CustomTurnConfig) {
+func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, port string, timeout time.Duration, forceTar, forceZip bool, noHistory bool, turnCfg *transport.CustomTurnConfig) {
 	startTime := time.Now()
 	var finalErr error
 	var fileSize int64
@@ -195,8 +194,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	multiListener := transport.NewMultiListener()
 	defer multiListener.Close()
 
-	// 1. Direct Listener (Port 9000)
-	directListener, err := tr.Listen(Port)
+	// 1. Direct Listener
+	directListener, err := tr.Listen(port)
 	if err != nil {
 		finalErr = err
 		sendMsg(ui.ErrorMsg(err))
@@ -205,7 +204,10 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	multiListener.Add(directListener)
 
 	// Start Advertising
-	stopAdvertising, err := discovery.StartAdvertising(9000, code)
+	// We need to parse port for advertisement
+	portInt := 9000 // Default fallback
+	fmt.Sscanf(port, "%d", &portInt)
+	stopAdvertising, err := discovery.StartAdvertising(portInt, code)
 	if err != nil {
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to advertise on network: %v", err)))
 	} else {

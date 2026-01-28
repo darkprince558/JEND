@@ -29,7 +29,7 @@ import (
 )
 
 // RunReceiver handles the main receiving logic
-func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig, autoApprove bool) {
+func RunReceiver(p *tea.Program, code string, port string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig, autoApprove bool) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -155,7 +155,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 		sendMsg(ui.StatusMsg("Fallback exhausted. Defaulting to localhost dial..."))
 		connectionDesc = "localhost"
 		dialFunc = func(ctx context.Context) (*quic.Conn, error) {
-			return tr.Dial("localhost:" + Port)
+			return tr.Dial("localhost:" + port)
 		}
 	}
 
@@ -164,6 +164,7 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 
 	retryCount := 0
 	maxRetries := 10 // Global retries for connection establishment
+	triedLocalhost := false
 
 	for {
 
@@ -179,6 +180,21 @@ func RunReceiver(p *tea.Program, code string, outputDir string, autoUnzip bool, 
 				sendMsg(ui.ErrorMsg(fmt.Errorf("max retries exceeded: %v", err)))
 				return
 			}
+
+			// Smart Fallback for Local Testing
+			// If discovery found an IP but it's not working (firewall?), validation via localhost often fixes it.
+			if retryCount > 2 && !triedLocalhost && connectionDesc != "localhost" {
+				sendMsg(ui.StatusMsg("Connection failing. Attempting fallback to localhost..."))
+				dialFunc = func(ctx context.Context) (*quic.Conn, error) {
+					return tr.Dial("localhost:" + port)
+				}
+				connectionDesc = "localhost (Fallback)"
+				triedLocalhost = true
+				retryCount = 0 // Reset retries for the new strategy
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+
 			sendMsg(ui.StatusMsg(fmt.Sprintf("Connection failed. Retrying in %d seconds...", retryCount)))
 			time.Sleep(time.Duration(retryCount) * time.Second)
 			continue

@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Public Network Services (The "Internet")
+  mqtt:
+    image: eclipse-mosquitto:latest
+    container_name: jend-mqtt
+    networks:
+      - home-net
+      - school-net
+    ports:
+      - "1883:1883"
+    # Provide simple config directly
+    command: sh -c "echo 'listener 1883' > /mosquitto.conf && echo 'allow_anonymous true' >> /mosquitto.conf && mosquitto -c /mosquitto.conf"
+
+  # Network A (Home)
+  sender:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/Dockerfile
+    container_name: jend-sender
+    networks:
+      - home-net
+    environment:
+      - JEND_MQTT_ENDPOINT=tcp://jend-mqtt:1883
+      - JEND_IDENTITY_POOL_ID=unused
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+    # Generate code, save to file.
+    command: sh -c "echo 'Starting Sender...' && jend send /app/e2e/test_data/payload.txt --headless --no-history > /app/sender_output.log 2>&1"
+    volumes:
+      - ../..:/app
+
+  # Network B (School)
+  receiver:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/Dockerfile
+    container_name: jend-receiver
+    networks:
+      - school-net
+    environment:
+      - JEND_MQTT_ENDPOINT=tcp://jend-mqtt:1883
+      - JEND_IDENTITY_POOL_ID=unused
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+    # Wait for code then receive
+    command: >
+      sh -c ' while [ ! -f /app/transfer_code.txt ]; do sleep 1; done; CODE=$$(cat /app/transfer_code.txt); echo "Receiving with code $$CODE"; jend receive $$CODE --dir /app/output --headless --no-history '
+    volumes:
+      - ../..:/app
+    depends_on:
+      - sender
+
+networks:
+  home-net:
+    internal: true # No internet, strict isolation
+  school-net:
+    internal: true
