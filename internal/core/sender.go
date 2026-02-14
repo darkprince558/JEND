@@ -220,7 +220,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		sendMsg(ui.StatusMsg("Connecting to Signaling Network..."))
 		sigClient, err := signaling.NewIoTClient(context.Background(), "sender-"+code)
 		if err != nil {
-			sendMsg(ui.StatusMsg(fmt.Sprintf("Signaling failed: %v", err)))
+			// Do not fail hard. Just log warning and rely on local MDNS.
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Cloud signaling unavailable (%v). Using local network only.", err)))
 			return
 		}
 		// sendMsg(ui.StatusMsg("Signaling Connected. Waiting for peer..."))

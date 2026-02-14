@@ -34,10 +34,12 @@ func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 		// Skip AWS Signing and Credential Retrieval for custom/local broker
 	} else {
 		// 1. Get AWS Credentials via Cognito
-		// TODO: Externalize IdentityPoolID configuration.
 		identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
 		if identityPoolID == "" {
-			identityPoolID = "us-east-1:63825811-2a43-4a2b-893c-ce78d256819d"
+			// Hardcoded ID from previous versions - now invalid/deleted
+			// Check if we should even try to connect.
+			// Ideally, we just return an error here to signal "No Cloud Configured"
+			return nil, fmt.Errorf("cloud credentials not configured (JEND_IDENTITY_POOL_ID missing)")
 		}
 
 		// Initial config to get region/defaults
@@ -60,7 +62,8 @@ func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 
 		creds, err := cfg.Credentials.Retrieve(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve aws credentials: %w", err)
+			// This captures the ResourceNotFoundException
+			return nil, fmt.Errorf("cloud credentials unavailable: %w", err)
 		}
 
 		// 2. Sign the Websocket URL

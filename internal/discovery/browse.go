@@ -52,7 +52,17 @@ func FindSender(code string, timeout time.Duration) (string, error) {
 						if len(entry.AddrIPv4) > 0 {
 							ip = entry.AddrIPv4[0]
 						} else if len(entry.AddrIPv6) > 0 {
-							ip = entry.AddrIPv6[0]
+							// Try to find a Global Unicast IPv6 address first
+							for _, v6 := range entry.AddrIPv6 {
+								if !v6.IsLinkLocalUnicast() {
+									ip = v6
+									break
+								}
+							}
+							// Fallback to first IPv6 if no global address found
+							if ip == nil {
+								ip = entry.AddrIPv6[0]
+							}
 						}
 
 						if ip != nil {

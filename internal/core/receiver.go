@@ -145,7 +145,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 					sendMsg(ui.StatusMsg(fmt.Sprintf("P2P ICE Failed: %v", errIce)))
 				}
 			} else {
-				sendMsg(ui.StatusMsg(fmt.Sprintf("Signaling Auth Failed: %v", errSig)))
+				sendMsg(ui.StatusMsg(fmt.Sprintf("Signaling Auth Failed: %v. Using local network only.", errSig)))
 			}
 		}
 	}
