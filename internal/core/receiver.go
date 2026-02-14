@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/darkprince558/jend/internal/config"
 	"github.com/darkprince558/jend/internal/transfer"
 	"github.com/darkprince558/jend/internal/transport"
 	"github.com/darkprince558/jend/internal/ui"
@@ -129,12 +130,8 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 				key := meta["key"]
 				sendMsg(ui.StatusMsg("Found S3 transfer! Downloading..."))
 
-				// Need Identity Pool ID
-				identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
-				if identityPoolID == "" {
-					identityPoolID = "us-east-1:6b98c4f2-9fea-4591-8b0f-f34be0a4da23"
-				}
-				region := "us-east-1"
+				identityPoolID := config.IdentityPoolID()
+				region := config.DefaultRegion
 
 				downloadPath, err := transfer.DownloadFromS3(context.Background(), key, outputDir, identityPoolID, region)
 				if err != nil {

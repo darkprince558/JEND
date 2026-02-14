@@ -10,12 +10,13 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/darkprince558/jend/internal/auth"
+	jendcfg "github.com/darkprince558/jend/internal/config"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 const (
-	iotEndpoint = "a10ofg7qwmr003-ats.iot.us-east-1.amazonaws.com"
-	region      = "us-east-1"
+	iotEndpoint = jendcfg.DefaultIoTEndpoint
+	region      = jendcfg.DefaultRegion
 )
 
 // IoTClient handles MQTT connections to AWS IoT Core.
@@ -35,11 +36,7 @@ func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 		// Skip AWS Signing and Credential Retrieval for custom/local broker
 	} else {
 		// 1. Get AWS Credentials via Cognito
-		identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
-		if identityPoolID == "" {
-			// Updated with new cost-optimized deployment ID
-			identityPoolID = "us-east-1:6b98c4f2-9fea-4591-8b0f-f34be0a4da23"
-		}
+		identityPoolID := jendcfg.IdentityPoolID()
 
 		// Initial config to get region/defaults
 		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))

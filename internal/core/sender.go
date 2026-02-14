@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/darkprince558/jend/internal/config"
 	"github.com/darkprince558/jend/internal/transfer"
 	"github.com/darkprince558/jend/internal/transport"
 	"github.com/darkprince558/jend/internal/ui"
@@ -89,11 +90,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	// 1. S3 Transfer Mode
 	if useS3 {
 
-		identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
-		if identityPoolID == "" {
-			identityPoolID = "us-east-1:6b98c4f2-9fea-4591-8b0f-f34be0a4da23"
-		}
-		region := "us-east-1"
+		identityPoolID := config.IdentityPoolID()
+		region := config.DefaultRegion
 
 		sendMsg(ui.StatusMsg("Uploading to S3 (max 200MB)..."))
 
