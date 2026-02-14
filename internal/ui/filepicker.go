@@ -59,8 +59,12 @@ func (m FilePickerModel) Init() tea.Cmd {
 func (m FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "esc":
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc:
+			m.quitting = true
+			return m, tea.Quit
+		}
+		if msg.String() == "q" {
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -126,12 +130,12 @@ func (m FilePickerModel) View() string {
 // Returns the selected file path, or empty string if cancelled.
 func RunFilePicker() (string, error) {
 	m := NewFilePickerModel()
-	tm, err := tea.NewProgram(&m).Run()
+	tm, err := tea.NewProgram(m).Run()
 	if err != nil {
 		return "", err
 	}
 
-	result := tm.(*FilePickerModel)
+	result := tm.(FilePickerModel)
 	if result.quitting || result.selectedFile == "" {
 		return "", nil
 	}
