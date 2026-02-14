@@ -12,15 +12,14 @@ builds:
     goarch:
       - amd64
       - arm64
-    main: ./cmd/jend/main.go
+    main: ./cmd/jend
     binary: jend
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
 archives:
   - format: tar.gz
-    # this name template makes the archive name compatible with the standard expected by many:
-    # name_titleized_os_arch.tar.gz
+    # this name template makes the archive name compatible with the standard names
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -28,7 +27,7 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-    # use zip for windows archives
+    # use zip for windows
     format_overrides:
     - goos: windows
       format: zip
@@ -46,7 +45,19 @@ changelog:
       - '^docs:'
       - '^test:'
 
-release:
-  github:
-    owner: darkprince558
-    name: jend
+# Homebrew Tap Configuration
+brews:
+  - name: jend
+    repository:
+      owner: darkprince558
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    
+    # Formula Description
+    description: "JEND: Just Enough Network Drop - Modern, secure, P2P file transfer."
+    homepage: "https://github.com/darkprince558/jend"
+    license: "MIT"
+
+    # Install instructions
+    install: |
+      bin.install "jend"

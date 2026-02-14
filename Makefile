@@ -54,3 +54,18 @@ deps:
 .PHONY: run
 run: build
 	./$(BUILD_DIR)/$(BINARY_NAME)
+
+# Release binaries for multiple platforms
+.PHONY: release
+release:
+	@echo "Building release binaries..."
+	@mkdir -p dist
+	# MacOS (Apple Silicon)
+	GOOS=darwin GOARCH=arm64 go build -o dist/$(BINARY_NAME)-mac-arm64 $(CMD_pkg)
+	# MacOS (Intel)
+	GOOS=darwin GOARCH=amd64 go build -o dist/$(BINARY_NAME)-mac-intel $(CMD_pkg)
+	# Linux
+	GOOS=linux GOARCH=amd64 go build -o dist/$(BINARY_NAME)-linux $(CMD_pkg)
+	# Windows
+	GOOS=windows GOARCH=amd64 go build -o dist/$(BINARY_NAME).exe $(CMD_pkg)
+	@echo "Release binaries created in dist/"
