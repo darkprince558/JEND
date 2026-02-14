@@ -80,6 +80,8 @@ type Model struct {
 	Err           error
 	ErrLevel      ErrorLevel
 	Exit          bool
+	SentBytes     int64
+	TotalBytes    int64
 	// Confirmation State
 	ConfirmResp chan bool
 	ConfirmName string
@@ -95,12 +97,10 @@ func NewModel(role Role, filename string, code string) Model {
 	pTotal := progress.New(
 		progress.WithGradient(string(ColorPrimary), string(ColorAccent)),
 		progress.WithWidth(60),
-		progress.WithoutPercentage(),
 	)
 	pFile := progress.New(
 		progress.WithGradient(string(ColorSecondary), string(ColorAccent)), // Green to Cyan
 		progress.WithWidth(60),
-		progress.WithoutPercentage(),
 	)
 
 	return Model{
@@ -193,6 +193,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		cmdTotal := m.TotalProgress.SetPercent(ratio)
 		cmdFile := m.FileProgress.SetPercent(ratio) // Same for single file
+
+		// Track bytes for display
+		m.SentBytes = msg.SentBytes
+		m.TotalBytes = msg.TotalBytes
 
 		// Update Telemetry
 		m.Speed = fmt.Sprintf("%.2f MB/s", msg.Speed/1024/1024)
@@ -302,8 +306,9 @@ func (m Model) View() string {
 
 		bars := lipgloss.JoinVertical(lipgloss.Left,
 			lipgloss.JoinHorizontal(lipgloss.Bottom, StatLabelStyle.Render("TOTAL"), m.TotalProgress.View()),
-			"\n",
-			lipgloss.JoinHorizontal(lipgloss.Bottom, StatLabelStyle.Render("FILE "), m.FileProgress.View()),
+			lipgloss.NewStyle().Foreground(ColorSubtext).PaddingLeft(11).Render(
+				FormatBytes(m.SentBytes)+" / "+FormatBytes(m.TotalBytes),
+			),
 		)
 
 		content = lipgloss.JoinVertical(lipgloss.Center,

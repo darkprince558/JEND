@@ -61,3 +61,14 @@ brews:
     # Install instructions
     install: |
       bin.install "jend"
+
+# Scoop Bucket Configuration (Windows)
+scoops:
+  - name: jend
+    repository:
+      owner: darkprince558
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    description: "JEND: Just Enough Network Drop - Modern, secure, P2P file transfer."
+    homepage: "https://github.com/darkprince558/jend"
+    license: MIT

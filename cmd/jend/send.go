@@ -45,9 +45,7 @@ Example:
   jend send --incognito secret.txt
   jend send --relay-url "turn:my.relay.click:3478" --relay-user foo --relay-pass bar`,
 	Args: func(cmd *cobra.Command, args []string) error {
-		if textContent == "" && len(args) < 1 {
-			return fmt.Errorf("requires a file path argument OR --text flag")
-		}
+		// Allow no args — file picker will handle it in interactive mode
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
@@ -56,8 +54,24 @@ Example:
 
 		if textContent != "" {
 			isText = true
-		} else {
+		} else if len(args) > 0 {
 			filePath = args[0]
+		} else {
+			// No file arg — launch interactive file picker (unless headless)
+			if headless {
+				fmt.Println("Error: file path required in headless mode (use --text for text)")
+				os.Exit(1)
+			}
+			selected, err := ui.RunFilePicker()
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			if selected == "" {
+				fmt.Println("No file selected.")
+				os.Exit(0)
+			}
+			filePath = selected
 		}
 
 		// Handle Incognito

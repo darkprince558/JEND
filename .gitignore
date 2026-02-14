@@ -1,14 +1,53 @@
-# Binaries
+# Binaries for all platforms
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 bin/
 dist/
 /jend
+jend_test_*
+test.exe
 
-# MacOS
+# Logs and PIDs
+*.log
+*.pid
+history.jsonl
+
+# Test output
+*.out
+testdir/
+output/
+output_*
+test_data/
+received_large/
+downloads/
+*_payload.txt
+test*.txt
+debug_code.txt
+*.bin
+*.mp4
+e2e/output/
+e2e/test_data/
+
+# OS Specific
 .DS_Store
+Thumbs.db
+
+# IDE Specific
+.idea/
+*.iml
+.vscode/
 
 # AWS CDK
 cdk.out/
+cdk.context.json
 infra/cdk.out/
+infra/cdk.context.json
 
 # Go
 go.sum
+
+# Misc
+anish.txt

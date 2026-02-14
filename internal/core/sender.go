@@ -145,12 +145,30 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 		sendMsg(ui.StatusMsg("Code Registered! Waiting for receiver to download..."))
 
-		// Wait until context cancelled by user
 		sendMsg(ui.ProgressMsg{SentBytes: fileSize, TotalBytes: fileSize}) // Show full progress
-		sendMsg(ui.StatusMsg("File is ready for pickup. Press Ctrl+C to close."))
+		sendMsg(ui.StatusMsg("File is ready for pickup. Waiting for receiver..."))
 
-		<-ctx.Done()
-		return
+		// Poll the registry every few seconds to see if the receiver picked it up
+		pollTicker := time.NewTicker(5 * time.Second)
+		defer pollTicker.Stop()
+		pollTimeout := time.After(timeout)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-pollTimeout:
+				sendMsg(ui.StatusMsg("S3 transfer timed out. Exiting."))
+				return
+			case <-pollTicker.C:
+				// Check if the registry entry is still there
+				_, err := regClient.Lookup(code)
+				if err != nil {
+					// Entry gone = receiver picked it up
+					sendMsg(ui.StatusMsg("Receiver downloaded the file! Transfer complete."))
+					return
+				}
+			}
+		}
 	}
 
 	var file io.Reader
@@ -378,6 +396,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		// Parallel Stream Handling Loop
 		var wg sync.WaitGroup
 		var streamID int = 0
+		var transferDone bool
 
 		for {
 			// Accept Stream (blocks until stream opens or connection dies)
@@ -400,7 +419,10 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 					}
 				}()
 
-				_, err := handleConnection(ctx, s, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg, false)
+				done, err := handleConnection(ctx, s, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg, false)
+				if done {
+					transferDone = true
+				}
 				if err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "cancelled") {
 					// sendMsg(ui.ErrorMsg(err))
 				}
@@ -408,6 +430,12 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		}
 		// Wait for all active streams to finish
 		wg.Wait()
+
+		// If transfer completed successfully, exit
+		if transferDone {
+			sendMsg(ui.StatusMsg("Transfer complete!"))
+			return
+		}
 
 		// If we are here, connection is done/closed.
 		if ctx.Err() != nil {
