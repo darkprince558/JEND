@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
@@ -40,6 +41,10 @@ func (e DetailedErrorMsg) Error() string {
 }
 
 type ErrorMsg error
+type TextReceivedMsg struct {
+	Content     string
+	ClipboardOk bool
+}
 type RequestApprovalMsg struct {
 	Name string
 	Size int64
@@ -82,6 +87,10 @@ type Model struct {
 	Exit          bool
 	SentBytes     int64
 	TotalBytes    int64
+	// Text receive
+	TextContent  string
+	ReceivedFile string
+	ClipboardOk  bool
 	// Confirmation State
 	ConfirmResp chan bool
 	ConfirmName string
@@ -176,10 +185,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.FileProgress = newFile.(progress.Model)
 		return m, tea.Batch(cmdTotal, cmdFile)
 
+	case TextReceivedMsg:
+		m.TextContent = msg.Content
+		m.ClipboardOk = msg.ClipboardOk
+
 	case StatusMsg:
 		m.Status = string(msg)
 		if m.State == StateStart {
 			m.State = StateConnecting
+		}
+		// Track received filename from status messages
+		if strings.HasPrefix(string(msg), "Saved to: ") {
+			m.ReceivedFile = strings.TrimPrefix(string(msg), "Saved to: ")
 		}
 
 	case ProgressMsg:
@@ -345,15 +362,50 @@ func (m Model) View() string {
 		)
 
 	case StateDone:
-		// Success state
 		header := TitleStyle.Render("COMPLETE")
 		check := lipgloss.NewStyle().Foreground(ColorSuccess).SetString("✔").String()
-		msg := lipgloss.NewStyle().Foreground(ColorText).Render("All files transmitted successfully.")
+
+		var details string
+		if m.TextContent != "" {
+			// Show received text
+			textBox := lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorPanel).
+				Padding(1, 2).
+				Width(50).
+				Foreground(ColorText).
+				Render(m.TextContent)
+
+			clipLine := ""
+			if m.ClipboardOk {
+				clipLine = lipgloss.NewStyle().Foreground(ColorSecondary).Render("📋 Copied to clipboard!")
+			}
+
+			details = lipgloss.JoinVertical(lipgloss.Center,
+				check+" "+lipgloss.NewStyle().Foreground(ColorText).Render("Text received!"),
+				"",
+				textBox,
+				"",
+				clipLine,
+			)
+		} else if m.ReceivedFile != "" {
+			details = lipgloss.JoinVertical(lipgloss.Center,
+				check+" "+lipgloss.NewStyle().Foreground(ColorText).Render("Transfer complete!"),
+				"",
+				lipgloss.NewStyle().Foreground(ColorSubtext).Render("Saved as: ")+lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(m.ReceivedFile),
+				"",
+				lipgloss.NewStyle().Foreground(ColorSubtext).Render(FormatBytes(m.TotalBytes)+" received"),
+			)
+		} else if m.Role == RoleSender {
+			details = check + " " + lipgloss.NewStyle().Foreground(ColorText).Render("File sent successfully!")
+		} else {
+			details = check + " " + lipgloss.NewStyle().Foreground(ColorText).Render("All files transmitted successfully.")
+		}
 
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			header,
 			"\n\n",
-			check+" "+msg,
+			details,
 		)
 	}
 

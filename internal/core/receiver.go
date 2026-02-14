@@ -45,6 +45,13 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 				fmt.Println("Error:", m)
 			case ui.StatusMsg:
 				fmt.Println("Status:", m)
+			case ui.TextReceivedMsg:
+				fmt.Printf("\nReceived Text:\n%s\n", m.Content)
+				if m.ClipboardOk {
+					fmt.Println("Text copied to clipboard!")
+				} else if noClipboard {
+					fmt.Println("Clipboard copy skipped (--no-clipboard)")
+				}
 			case ui.ProgressMsg:
 				if m.TotalBytes > 0 && m.SentBytes == m.TotalBytes {
 					fmt.Println("Done!")
@@ -514,13 +521,8 @@ func handleReceiveSession(
 	if c, ok := stream.(io.Closer); ok {
 		c.Close()
 	}
-	sendMsg(ui.ProgressMsg{
-		SentBytes:  meta.Size,
-		TotalBytes: meta.Size,
-		Speed:      0,
-		ETA:        0,
-		Protocol:   "Done",
-	})
+	// Don't send 100% progress yet — text/file handling below needs to
+	// run before the TUI quits (ProgressMsg with ratio>=1.0 triggers tea.Quit)
 
 	// Close explicitly to allow rename
 	outFile.Close()
@@ -534,17 +536,14 @@ func handleReceiveSession(
 
 			if meta.Type == "text" {
 				content := textBuf.String()
-				fmt.Printf("\nReceived Text:\n%s\n", content)
+				clipOk := false
 				if !noClipboard {
 					if err := clipboard.WriteAll(content); err == nil {
-						sendMsg(ui.StatusMsg("Text copied to clipboard!"))
-					} else {
-						// Warning instead of just info
-						sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to copy to clipboard"), Level: ui.LevelWarning})
+						clipOk = true
 					}
-				} else {
-					sendMsg(ui.StatusMsg("Clipboard copy skipped (--no-clipboard)"))
 				}
+				sendMsg(ui.TextReceivedMsg{Content: content, ClipboardOk: clipOk})
+				sendMsg(ui.ProgressMsg{SentBytes: meta.Size, TotalBytes: meta.Size})
 				return true, fileSize, meta.Hash, nil
 			}
 
@@ -566,6 +565,7 @@ func handleReceiveSession(
 			}
 			fileHash = meta.Hash // Set hash for audit log only on success
 			sendMsg(ui.StatusMsg("Saved to: " + filepath.Base(finalPath)))
+			sendMsg(ui.ProgressMsg{SentBytes: meta.Size, TotalBytes: meta.Size})
 
 		} else {
 			return false, fileSize, "", fmt.Errorf("Integrity Check: FAILED (Expected %s, Got %s).", meta.Hash, recvHash)
@@ -573,16 +573,21 @@ func handleReceiveSession(
 	} else {
 		if meta.Type == "text" {
 			content := textBuf.String()
-			fmt.Printf("\nReceived Text:\n%s\n", content)
+			clipOk := false
 			if !noClipboard {
-				clipboard.WriteAll(content)
+				if err := clipboard.WriteAll(content); err == nil {
+					clipOk = true
+				}
 			}
+			sendMsg(ui.TextReceivedMsg{Content: content, ClipboardOk: clipOk})
+			sendMsg(ui.ProgressMsg{SentBytes: meta.Size, TotalBytes: meta.Size})
 			return true, fileSize, "", nil
 		}
 
 		// No hash provided, move file without verification
 		os.Rename(partialPath, finalPath)
 		sendMsg(ui.StatusMsg("Integrity Check: SKIPPED (No hash provided)"))
+		sendMsg(ui.ProgressMsg{SentBytes: meta.Size, TotalBytes: meta.Size})
 	}
 
 	time.Sleep(time.Second)
