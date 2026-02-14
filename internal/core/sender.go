@@ -398,11 +398,15 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		var streamID int = 0
 		var transferDone bool
 
+		// Context to control the accept loop
+		acceptCtx, cancelAccept := context.WithCancel(context.Background())
+		defer cancelAccept()
+
 		for {
 			// Accept Stream (blocks until stream opens or connection dies)
-			stream, err := conn.AcceptStream(context.Background())
+			stream, err := conn.AcceptStream(acceptCtx)
 			if err != nil {
-				// Connection closed or error
+				// Connection closed or context cancelled
 				break
 			}
 
@@ -421,9 +425,12 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 				done, err := handleConnection(ctx, s, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg, false)
 				if done {
+					// Transfer completed!
+					// Stop accepting new streams, but let existing ones finish flushing
+					cancelAccept()
 					transferDone = true
 				}
-				if err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "cancelled") {
+				if err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "cancelled") && !strings.Contains(err.Error(), "closed") && !strings.Contains(err.Error(), "context canceled") {
 					// sendMsg(ui.ErrorMsg(err))
 				}
 			}(stream, isFirst)
@@ -433,6 +440,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 		// If transfer completed successfully, exit
 		if transferDone {
+			// Send final progress to trigger TUI quit (ratio >= 1.0)
+			sendMsg(ui.ProgressMsg{SentBytes: fileSize, TotalBytes: fileSize})
 			sendMsg(ui.StatusMsg("Transfer complete!"))
 			return
 		}
