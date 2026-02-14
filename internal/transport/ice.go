@@ -13,7 +13,7 @@ import (
 
 const (
 	StunServer = "stun:stun.l.google.com:19302"
-	AuthAPI    = "https://k4fa8k5sjg.execute-api.us-east-1.amazonaws.com/turn-auth"
+	AuthAPI    = "https://ei6hnj0udh.execute-api.us-east-1.amazonaws.com/turn-auth"
 )
 
 // TurnCredentials represents the ephemeral credentials returned by the TURN Auth API.

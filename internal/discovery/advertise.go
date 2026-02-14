@@ -41,5 +41,5 @@ func StartAdvertising(port int, code string) (func(), error) {
 // RegisterWithCloud registers the instance with the global AWS registry.
 func RegisterWithCloud(code string, ip string, port int) error {
 	client := NewRegistryClient()
-	return client.Register(code, ip, port)
+	return client.Register(code, ip, port, nil)
 }

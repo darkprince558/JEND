@@ -13,10 +13,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/darkprince558/jend/internal/transfer"
 	"github.com/darkprince558/jend/internal/transport"
 	"github.com/darkprince558/jend/internal/ui"
 	"github.com/darkprince558/jend/pkg/protocol"
@@ -33,7 +35,7 @@ const (
 )
 
 // RunSender handles the main sending logic
-func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, port string, timeout time.Duration, forceTar, forceZip bool, noHistory bool, turnCfg *transport.CustomTurnConfig) {
+func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, port string, timeout time.Duration, forceTar, forceZip bool, noHistory bool, turnCfg *transport.CustomTurnConfig, useS3 bool) {
 	startTime := time.Now()
 	var finalErr error
 	var fileSize int64
@@ -46,6 +48,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		} else {
 			// Headless fallback
 			switch m := msg.(type) {
+			case ui.DetailedErrorMsg:
+				fmt.Printf("Error (%v): %v\n", m.Level, m.Err)
 			case ui.ErrorMsg:
 				fmt.Println("Error:", m)
 			case ui.StatusMsg:
@@ -83,6 +87,72 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		}
 	}()
 
+	// 1. S3 Transfer Mode
+	if useS3 {
+		// Need to get Identity Pool ID similar to how mqtt.go does it.
+		// Ideally this should be passed in or centralized config.
+		// For PoC, we read env or use default.
+		identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
+		if identityPoolID == "" {
+			identityPoolID = "us-east-1:6b98c4f2-9fea-4591-8b0f-f34be0a4da23"
+		}
+		region := "us-east-1" // Hardcoded for PoC
+
+		sendMsg(ui.StatusMsg("Uploading to S3 (max 200MB)..."))
+
+		// If text, save to temp file first
+		if isText {
+			tmpFile, err := os.CreateTemp("", "jend-text-*.txt")
+			if err != nil {
+				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
+				return
+			}
+			defer os.Remove(tmpFile.Name())
+			if _, err := tmpFile.WriteString(textContent); err != nil {
+				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
+				return
+			}
+			tmpFile.Close()
+			filePath = tmpFile.Name()
+		}
+
+		key, err := transfer.UploadToS3(ctx, filePath, code, identityPoolID, region)
+		if err != nil {
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("S3 Upload Failed: %w", err), Level: ui.LevelFatal})
+			return
+		}
+
+		sendMsg(ui.StatusMsg("Upload Complete! Registering code..."))
+
+		// Register with S3 Metadata
+		regClient := discovery.NewRegistryClient()
+
+		// Parse Port
+		portInt, _ := strconv.Atoi(port)
+
+		// Metadata (marshal to PublicKey)
+		meta := map[string]string{
+			"type": "s3",
+			"key":  key,
+		}
+		metaBytes, _ := json.Marshal(meta)
+
+		err = regClient.Register(code, "", portInt, metaBytes)
+		if err != nil {
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Registry Registration Failed: %w", err), Level: ui.LevelFatal})
+			return
+		}
+
+		sendMsg(ui.StatusMsg("Code Registered! Waiting for receiver to download..."))
+
+		// Wait until context cancelled by user
+		sendMsg(ui.ProgressMsg{SentBytes: fileSize, TotalBytes: fileSize}) // Show full progress
+		sendMsg(ui.StatusMsg("File is ready for pickup. Press Ctrl+C to close."))
+
+		<-ctx.Done()
+		return
+	}
+
 	var file io.Reader
 	var fileName string
 	var cleanup func()
@@ -102,7 +172,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		info, err = os.Stat(filePath)
 		if err != nil {
 			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
+			sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 			return
 		}
 		fileSize = info.Size()
@@ -115,14 +185,14 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			tempPath, err := CompressPath(filePath, "tar.gz")
 			if err != nil {
 				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
+				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
 
 			fileObj, err = os.Open(tempPath)
 			if err != nil {
 				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
+				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
 			fileName = filepath.Base(filePath) + ".tar.gz"
@@ -136,14 +206,14 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			tempPath, err := CompressPath(filePath, "zip")
 			if err != nil {
 				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
+				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
 
 			fileObj, err = os.Open(tempPath)
 			if err != nil {
 				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
+				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
 			fileName = filepath.Base(filePath) + ".zip"
@@ -157,7 +227,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			fileObj, err = os.Open(filePath)
 			if err != nil {
 				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
+				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
 
@@ -165,13 +235,13 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			fileLock := flock.New(filePath)
 			locked, err := fileLock.TryLock()
 			if err != nil {
-				sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Could not enable file lock: %v", err)))
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Could not enable file lock: %v", err), Level: ui.LevelWarning})
 			} else if !locked {
 				// File is busy
-				sendMsg(ui.StatusMsg("Warning: File is currently in use by another process. Changes during transfer may corrupt data."))
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("File is currently in use by another process. Changes during transfer may corrupt data."), Level: ui.LevelWarning})
 			} else {
 				// Lock acquired!
-				sendMsg(ui.StatusMsg("File locked for reading."))
+				// sendMsg(ui.StatusMsg("File locked for reading."))
 			}
 
 			fileName = info.Name()
@@ -198,7 +268,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	directListener, err := tr.Listen(port)
 	if err != nil {
 		finalErr = err
-		sendMsg(ui.ErrorMsg(err))
+		sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 		return
 	}
 	multiListener.Add(directListener)
@@ -209,10 +279,21 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	fmt.Sscanf(port, "%d", &portInt)
 	stopAdvertising, err := discovery.StartAdvertising(portInt, code)
 	if err != nil {
-		sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to advertise on network: %v", err)))
+		sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Failed to advertise on local network: %v", err), Level: ui.LevelWarning})
 	} else {
 		defer stopAdvertising()
 		sendMsg(ui.StatusMsg("Broadcasting on local network..."))
+
+		// Also register with Cloud Registry for P2P (if not S3)
+		regClient := discovery.NewRegistryClient()
+		portInt, _ := strconv.Atoi(port)
+
+		// We pass empty IP to let server infer it, or rely on ICE.
+		// We pass nil metadata for standard P2P.
+		if err := regClient.Register(code, "", portInt, nil); err != nil {
+			// Non-fatal
+			// sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Cloud Registration Failed: %v", err), Level: ui.LevelWarning})
+		}
 	}
 
 	// Start Signaling (MQTT)
@@ -221,7 +302,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		sigClient, err := signaling.NewIoTClient(context.Background(), "sender-"+code)
 		if err != nil {
 			// Do not fail hard. Just log warning and rely on local MDNS.
-			sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Cloud signaling unavailable (%v). Using local network only.", err)))
+			// Warn only
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Cloud signaling unavailable (%v). Using local network only.", err), Level: ui.LevelWarning})
 			return
 		}
 		// sendMsg(ui.StatusMsg("Signaling Connected. Waiting for peer..."))
@@ -233,7 +315,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		// This blocks until ICE connects
 		pc, err := p2p.EstablishConnection(ctx, false) // false = Answerer (Sender)
 		if err != nil {
-			sendMsg(ui.StatusMsg(fmt.Sprintf("P2P Signaling failed: %v", err)))
+			// Warn only
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("P2P Signaling failed: %v", err), Level: ui.LevelWarning})
 			return
 		}
 		sendMsg(ui.StatusMsg("P2P (ICE) Connected! Joining listener pool..."))
@@ -241,7 +324,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		// 2. Start QUIC Listener on ICE connection
 		iceListener, err := tr.ListenPacket(pc)
 		if err != nil {
-			sendMsg(ui.StatusMsg(fmt.Sprintf("Failed to listen on ICE: %v", err)))
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Failed to listen on ICE: %v", err), Level: ui.LevelWarning})
 			return
 		}
 
@@ -259,7 +342,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	for {
 		if time.Since(startTime) > timeout {
 			finalErr = fmt.Errorf("session timed out")
-			sendMsg(ui.ErrorMsg(finalErr))
+			sendMsg(ui.DetailedErrorMsg{Err: finalErr, Level: ui.LevelFatal})
 			return
 		}
 
@@ -282,11 +365,11 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			}
 			if acceptCtx.Err() == context.DeadlineExceeded {
 				finalErr = fmt.Errorf("code has expired or connection lost")
-				sendMsg(ui.ErrorMsg(finalErr))
+				sendMsg(ui.DetailedErrorMsg{Err: finalErr, Level: ui.LevelFatal})
 				return
 			}
 			finalErr = err
-			sendMsg(ui.ErrorMsg(err))
+			sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 			return
 		}
 

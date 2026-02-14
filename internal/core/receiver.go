@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/darkprince558/jend/internal/transfer"
 	"github.com/darkprince558/jend/internal/transport"
 	"github.com/darkprince558/jend/internal/ui"
 	"github.com/darkprince558/jend/pkg/protocol"
@@ -35,9 +36,13 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 			p.Send(msg)
 		} else {
 			switch m := msg.(type) {
+			case ui.DetailedErrorMsg:
+				fmt.Printf("Error (%v): %v\n", m.Level, m.Err)
+				if m.Level == ui.LevelFatal {
+					// os.Exit(1) handled in defer
+				}
 			case ui.ErrorMsg:
 				fmt.Println("Error:", m)
-				// os.Exit(1) handled in defer
 			case ui.StatusMsg:
 				fmt.Println("Status:", m)
 			case ui.ProgressMsg:
@@ -48,7 +53,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 		}
 	}
 
-	time.Sleep(time.Second * 1) // Fake discovery time
+	// time.Sleep(time.Second * 1) // Fake discovery time - REMOVED
 
 	startTime := time.Now()
 	var finalErr error
@@ -110,8 +115,38 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 		}
 	} else {
 		sendMsg(ui.StatusMsg("Local discovery timed out, checking Cloud Registry..."))
-		cloudIP, errCloud := discovery.LookupCloud(code)
+
+		item, errCloud := discovery.LookupCloud(code)
 		if errCloud == nil {
+			// Check for S3 Metadata via PublicKey
+			var meta map[string]string
+			if len(item.PublicKey) > 0 {
+				_ = json.Unmarshal(item.PublicKey, &meta)
+			}
+
+			if meta != nil && meta["type"] == "s3" {
+				key := meta["key"]
+				sendMsg(ui.StatusMsg("Found S3 transfer! Downloading..."))
+
+				// Need Identity Pool ID
+				identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
+				if identityPoolID == "" {
+					identityPoolID = "us-east-1:6b98c4f2-9fea-4591-8b0f-f34be0a4da23"
+				}
+				region := "us-east-1"
+
+				downloadPath, err := transfer.DownloadFromS3(context.Background(), key, outputDir, identityPoolID, region)
+				if err != nil {
+					sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("S3 Download Failed: %w", err), Level: ui.LevelFatal})
+					return
+				}
+
+				sendMsg(ui.StatusMsg(fmt.Sprintf("Download Complete! Saved to %s", downloadPath)))
+				return
+			}
+
+			// Standard P2P via Cloud
+			cloudIP := fmt.Sprintf("%s:%d", item.IP, item.Port)
 			sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender via Cloud at %s!", cloudIP)))
 			dialectAddr := cloudIP
 			connectionDesc = cloudIP
@@ -133,7 +168,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 				pc, errIce := p2p.EstablishConnection(context.Background(), true) // true = Offerer (Receiver)
 
 				// We can disconnect signaling now that ICE is set
-				sigClient.Disconnect()
+				sigClient.Disconnect() // Explicitly disconnect
 
 				if errIce == nil {
 					sendMsg(ui.StatusMsg("P2P (ICE) Connected! Switching transport..."))
@@ -142,10 +177,12 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 						return tr.DialPacket(pc, nil)
 					}
 				} else {
-					sendMsg(ui.StatusMsg(fmt.Sprintf("P2P ICE Failed: %v", errIce)))
+					// NON-FATAL ERROR: ICE Failed
+					sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("P2P ICE Failed: %v", errIce), Level: ui.LevelWarning})
 				}
 			} else {
-				sendMsg(ui.StatusMsg(fmt.Sprintf("Signaling Auth Failed: %v. Using local network only.", errSig)))
+				// NON-FATAL ERROR: Signaling Failed
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Signaling Auth Failed: %v. Using local network only.", errSig), Level: ui.LevelWarning})
 			}
 		}
 	}
@@ -177,7 +214,8 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 			retryCount++
 			if retryCount > maxRetries {
 				finalErr = err
-				sendMsg(ui.ErrorMsg(fmt.Errorf("max retries exceeded: %v", err)))
+				// FATAL ERROR
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("max retries exceeded: %v", err), Level: ui.LevelFatal})
 				return
 			}
 
@@ -206,7 +244,8 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 
 		stream, err := conn.OpenStreamSync(context.Background())
 		if err != nil {
-			sendMsg(ui.ErrorMsg(fmt.Errorf("failed to open stream: %v", err)))
+			// Transient Error
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to open stream: %v", err), Level: ui.LevelWarning})
 			conn.CloseWithError(0, "stream open failed")
 			time.Sleep(time.Second)
 			continue
@@ -226,10 +265,12 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 			// Check for cancellation
 			if strings.Contains(err.Error(), "transfer cancelled by sender") {
 				finalErr = err
-				sendMsg(ui.ErrorMsg(err))
+				// FATAL ERROR
+				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
-			sendMsg(ui.StatusMsg(fmt.Sprintf("Transfer interrupted (%v). Retrying...", err)))
+			// Transient Error
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("transfer interrupted (%v). Retrying...", err), Level: ui.LevelWarning})
 			stream.Close()
 			// Close connection if not already closed
 			conn.CloseWithError(0, "interrupted")
@@ -498,7 +539,8 @@ func handleReceiveSession(
 					if err := clipboard.WriteAll(content); err == nil {
 						sendMsg(ui.StatusMsg("Text copied to clipboard!"))
 					} else {
-						sendMsg(ui.StatusMsg("Failed to copy to clipboard"))
+						// Warning instead of just info
+						sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to copy to clipboard"), Level: ui.LevelWarning})
 					}
 				} else {
 					sendMsg(ui.StatusMsg("Clipboard copy skipped (--no-clipboard)"))

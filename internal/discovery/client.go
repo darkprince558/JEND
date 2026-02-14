@@ -12,7 +12,7 @@ import (
 const (
 	// In a real app, this might be configurable via flags or env vars.
 	// For this PoC, we use the deployed endpoint.
-	apiEndpoint = "https://k4fa8k5sjg.execute-api.us-east-1.amazonaws.com"
+	apiEndpoint = "https://ei6hnj0udh.execute-api.us-east-1.amazonaws.com"
 )
 
 // RegistryClient handles interaction with the global JEND Registry Service.
@@ -30,19 +30,21 @@ func NewRegistryClient() *RegistryClient {
 }
 
 // RegistryItem represents the data structure stored/retrieved.
+// RegistryItem represents the data structure stored/retrieved.
 type RegistryItem struct {
 	Code      string `json:"code"`
 	IP        string `json:"ip"`
 	Port      int    `json:"port"`
-	PublicKey []byte `json:"public_key,omitempty"` // For future PAKE/Noise use
+	PublicKey []byte `json:"public_key,omitempty"` // Used for S3 Metadata
 }
 
 // Register sends a POST request to register this peer.
-func (c *RegistryClient) Register(code, ip string, port int) error {
+func (c *RegistryClient) Register(code, ip string, port int, pubKey []byte) error {
 	item := RegistryItem{
-		Code: code,
-		IP:   ip,
-		Port: port,
+		Code:      code,
+		IP:        ip,
+		Port:      port,
+		PublicKey: pubKey,
 	}
 
 	body, err := json.Marshal(item)

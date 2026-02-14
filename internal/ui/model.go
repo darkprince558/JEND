@@ -30,6 +30,15 @@ const (
 
 // Messages
 type StatusMsg string
+type DetailedErrorMsg struct {
+	Err   error
+	Level ErrorLevel
+}
+
+func (e DetailedErrorMsg) Error() string {
+	return e.Err.Error()
+}
+
 type ErrorMsg error
 type RequestApprovalMsg struct {
 	Name string
@@ -45,6 +54,16 @@ type ProgressMsg struct {
 	Protocol   string        // "Direct [LAN]" or similar
 }
 
+// Error Levels
+type ErrorLevel int
+
+const (
+	LevelInfo ErrorLevel = iota
+	LevelWarning
+	LevelError
+	LevelFatal
+)
+
 type Model struct {
 	Role          Role
 	State         State
@@ -59,6 +78,7 @@ type Model struct {
 	Protocol      string
 	Status        string
 	Err           error
+	ErrLevel      ErrorLevel
 	Exit          bool
 	// Confirmation State
 	ConfirmResp chan bool
@@ -69,16 +89,18 @@ type Model struct {
 func NewModel(role Role, filename string, code string) Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(ColorSecondary)
+	s.Style = lipgloss.NewStyle().Foreground(ColorAccent)
 
-	// Custom Progress Bar Styles (Neon Gradient)
+	// Custom Progress Bar Styles (Minimal Gradient)
 	pTotal := progress.New(
-		progress.WithGradient(string(ColorPrimary), string(ColorSecondary)),
-		progress.WithWidth(50),
+		progress.WithGradient(string(ColorPrimary), string(ColorAccent)),
+		progress.WithWidth(60),
+		progress.WithoutPercentage(),
 	)
 	pFile := progress.New(
-		progress.WithGradient(string(ColorSuccess), string(ColorSecondary)), // Green to Cyan
-		progress.WithWidth(50),
+		progress.WithGradient(string(ColorSecondary), string(ColorAccent)), // Green to Cyan
+		progress.WithWidth(60),
+		progress.WithoutPercentage(),
 	)
 
 	return Model{
@@ -102,6 +124,18 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// If showing a non-fatal error or done state, allow exit or dismissal
+		if m.State == StateError && m.ErrLevel != LevelFatal {
+			if msg.String() == "esc" || msg.String() == "enter" {
+				m.State = StateStart // Return to start or previous state? For now, start/connecting
+				if m.Role == RoleReceiver || m.Role == RoleSender {
+					m.State = StateConnecting
+				}
+				m.Err = nil
+				return m, nil
+			}
+		}
+
 		if m.State == StateConfirm {
 			if msg.String() == "y" || msg.String() == "Y" {
 				m.ConfirmResp <- true
@@ -167,9 +201,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, tea.Batch(cmdTotal, cmdFile)
 
-	case ErrorMsg:
+	case DetailedErrorMsg:
+		m.Err = msg.Err
+		m.ErrLevel = msg.Level
 		m.State = StateError
+		if m.ErrLevel == LevelFatal {
+			return m, tea.Quit
+		}
+		// For non-fatal, we stay in the loop to show the error
+		return m, nil
+
+	case ErrorMsg:
+		// Legacy support: Treat as Fatal
 		m.Err = msg
+		m.ErrLevel = LevelFatal
+		m.State = StateError
 		return m, tea.Quit
 	}
 
@@ -177,27 +223,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	if m.Err != nil {
-		return ContainerStyle.Render(
-			lipgloss.JoinVertical(lipgloss.Center,
-				ErrorStyle.Render("ERROR"),
-				lipgloss.NewStyle().Foreground(ColorError).Padding(1).Render(fmt.Sprintf("%v", m.Err)),
-			),
+	if m.State == StateError {
+		header := ErrorStyle.Render("ERROR")
+		msgColor := ColorError
+
+		if m.ErrLevel == LevelWarning {
+			header = WarningStyle.Render("WARNING")
+			msgColor = ColorWarning
+		} else if m.ErrLevel == LevelInfo {
+			header = InfoStyle.Render("INFO")
+			msgColor = ColorSecondary
+		}
+
+		content := lipgloss.JoinVertical(lipgloss.Center,
+			header,
+			lipgloss.NewStyle().Foreground(msgColor).Padding(1).Render(fmt.Sprintf("%v", m.Err)),
 		)
+
+		if m.ErrLevel != LevelFatal {
+			content = lipgloss.JoinVertical(lipgloss.Center,
+				content,
+				lipgloss.NewStyle().Faint(true).Foreground(ColorSubtext).Render("Press Enter to continue..."),
+			)
+		}
+
+		return ContainerStyle.Render(content)
 	}
 
 	var content string
 
 	switch m.State {
 	case StateStart, StateConnecting:
-		// Matrix Style Handshake
-		header := MatrixHeaderStyle.Render("JEND SECURE LINK")
+		// Clean Header
+		header := TitleStyle.Render("JEND")
 
 		info := ""
 		if m.Role == RoleSender {
 			info = ViewCode(m.Code)
 		} else {
-			info = MatrixTextStyle.Render(">> ESTABLISHING SECURE CONNECTION <<\n>> WAITING FOR PEER... <<")
+			info = SubTextStyle.Render("waiting for connection...")
 		}
 
 		// Centered Status with Spinner
@@ -209,27 +273,27 @@ func (m Model) View() string {
 
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			header,
-			"\n",
+			"\n\n",
 			info,
-			"\n",
+			"\n\n",
 			statusLine,
 		)
 
 	case StateTransferring:
-		header := TitleStyle.Render("DATA TRANSFER IN P2P TUNNEL")
+		header := TitleStyle.Render("TRANSFERRING")
 
-		// Telemetry Grid
+		// Telemetry Grid - Minimal
 		telemetry := lipgloss.JoinHorizontal(lipgloss.Top,
 			lipgloss.JoinVertical(lipgloss.Left,
 				StatLabelStyle.Render("SPEED"),
 				StatValueStyle.Render(m.Speed),
 			),
-			lipgloss.NewStyle().Width(2).Render(""),
+			lipgloss.NewStyle().Width(4).Render(""),
 			lipgloss.JoinVertical(lipgloss.Left,
 				StatLabelStyle.Render("ETA"),
 				StatValueStyle.Render(m.ETA),
 			),
-			lipgloss.NewStyle().Width(2).Render(""),
+			lipgloss.NewStyle().Width(4).Render(""),
 			lipgloss.JoinVertical(lipgloss.Left,
 				StatLabelStyle.Render("PROTOCOL"),
 				StatValueStyle.Render(m.Protocol),
@@ -238,35 +302,34 @@ func (m Model) View() string {
 
 		bars := lipgloss.JoinVertical(lipgloss.Left,
 			lipgloss.JoinHorizontal(lipgloss.Bottom, StatLabelStyle.Render("TOTAL"), m.TotalProgress.View()),
-			" ", // spacer
+			"\n",
 			lipgloss.JoinHorizontal(lipgloss.Bottom, StatLabelStyle.Render("FILE "), m.FileProgress.View()),
 		)
 
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			header,
-			"\n",
+			"\n\n",
 			telemetry,
-			"\n",
+			"\n\n",
 			bars,
-			"\n",
+			"\n\n",
 			StatusStyle.Render(m.Status),
 		)
 
 	case StateConfirm:
-		header := TitleStyle.Render("INCOMING FILE REQUEST")
+		header := TitleStyle.Render("INCOMING FILE")
 
+		// Borderless Info Box
 		infoBox := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorSecondary).
-			Padding(1, 2).
+			Padding(1, 0).
 			Render(
 				fmt.Sprintf("Sender wants to send:\n\n%s\n%s",
-					lipgloss.NewStyle().Bold(true).Render(m.ConfirmName),
-					lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(fmt.Sprintf("%d MB", m.ConfirmSize/1024/1024)),
+					lipgloss.NewStyle().Bold(true).Foreground(ColorText).Render(m.ConfirmName),
+					lipgloss.NewStyle().Foreground(ColorSubtext).Render(fmt.Sprintf("%d MB", m.ConfirmSize/1024/1024)),
 				),
 			)
 
-		prompt := lipgloss.NewStyle().Blink(true).Render("Accept? (y/n)")
+		prompt := lipgloss.NewStyle().Foreground(ColorAccent).Blink(true).Render("Accept? (y/n)")
 
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			header,
@@ -278,13 +341,13 @@ func (m Model) View() string {
 
 	case StateDone:
 		// Success state
-		header := TitleStyle.Render("TRANSFER COMPLETE")
+		header := TitleStyle.Render("COMPLETE")
 		check := lipgloss.NewStyle().Foreground(ColorSuccess).SetString("✔").String()
 		msg := lipgloss.NewStyle().Foreground(ColorText).Render("All files transmitted successfully.")
 
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			header,
-			"\n",
+			"\n\n",
 			check+" "+msg,
 		)
 	}

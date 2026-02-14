@@ -2,78 +2,84 @@ package ui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Color Palette (Modern/Neon)
+// Color Palette (Minimal & Cool)
 var (
-	ColorPrimary   = lipgloss.Color("#8A2BE2") // Vibrant BlueViolet
-	ColorSecondary = lipgloss.Color("#00FFFF") // Cyan/Aqua for accents
-	ColorSuccess   = lipgloss.Color("#00FF00") // Neon Green
-	ColorError     = lipgloss.Color("#FF0055") // Neon Red/Pink
-	ColorWarning   = lipgloss.Color("#FFFF00") // Neon Yellow
-	ColorText      = lipgloss.Color("#FFFFFF") // Pure White
-	ColorSubtext   = lipgloss.Color("#A0AEC0") // Cool Gray
-	ColorBg        = lipgloss.Color("#1A202C") // Dark Blue-Gray Background
+	ColorPrimary   = lipgloss.Color("#7F5AF0") // Soft Purple
+	ColorSecondary = lipgloss.Color("#2CB67D") // Muted Green
+	ColorSuccess   = lipgloss.Color("#2CB67D") // Alias for backward compatibility
+	ColorAccent    = lipgloss.Color("#00F0FF") // Cyan Accent
+	ColorError     = lipgloss.Color("#EF4565") // Soft Red
+	ColorWarning   = lipgloss.Color("#F9C74E") // Muted Yellow
+	ColorText      = lipgloss.Color("#FFFFFE") // Off-White
+	ColorSubtext   = lipgloss.Color("#94A1B2") // Blue-Gray
+	ColorBg        = lipgloss.Color("#16161A") // Dark Background
+	ColorPanel     = lipgloss.Color("#242629") // Panel Background
 )
 
-// Styles
+// Styles - Borderless & Minimal
 var (
 	TitleStyle = lipgloss.NewStyle().
 			Foreground(ColorPrimary).
 			Bold(true).
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorPrimary)
+			Padding(1, 0, 0, 0).
+			MarginBottom(1)
 
 	StatusStyle = lipgloss.NewStyle().
+			Foreground(ColorSubtext).
+			Italic(true).
+			MarginTop(1)
+
+	SubTextStyle = lipgloss.NewStyle().
 			Foreground(ColorSubtext).
 			Italic(true)
 
 	CodeStyle = lipgloss.NewStyle().
-			Foreground(ColorSecondary).
-			Background(lipgloss.Color("#2D3748")).
-			Padding(1, 2).
+			Foreground(ColorAccent).
+			Background(ColorPanel).
+			Padding(1, 4).
 			Margin(1, 0).
 			Bold(true).
-			Align(lipgloss.Center).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorSecondary)
+			Align(lipgloss.Center)
+		// No Border
 
 	ErrorStyle = lipgloss.NewStyle().
 			Foreground(ColorError).
 			Bold(true).
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(ColorError).
-			Padding(1)
+			Padding(0, 1).
+			MarginBottom(1)
+
+	WarningStyle = lipgloss.NewStyle().
+			Foreground(ColorWarning).
+			Bold(true).
+			Padding(0, 1).
+			MarginBottom(1)
+
+	InfoStyle = lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			Bold(true).
+			Padding(0, 1).
+			MarginBottom(1)
 
 	ContainerStyle = lipgloss.NewStyle().
-			Padding(1, 2).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorPrimary).
-			Width(65).
-			Align(lipgloss.Center)
+			Padding(2, 4).
+		// No Border
+		Width(70).
+		Align(lipgloss.Center)
 
-	// Matrix / Handshake Styles (Cyberpunk Theme)
-	MatrixHeaderStyle = lipgloss.NewStyle().
-				Foreground(ColorSuccess).
-				Bold(true).
-				Padding(0, 1).
-				Border(lipgloss.NormalBorder(), false, false, true, false). // Bottom border only
-				BorderForeground(ColorSuccess)
-
-	MatrixTextStyle = lipgloss.NewStyle().
-			Foreground(ColorSuccess).
-			Background(lipgloss.Color("#000000")).
-			Padding(0, 1)
+	// Deprecated/Reused
+	MatrixHeaderStyle = TitleStyle.Copy()
+	MatrixTextStyle   = SubTextStyle.Copy()
 
 	// Telemetry Styles
 	StatLabelStyle = lipgloss.NewStyle().
 			Foreground(ColorSubtext).
-			Width(12).
+			Width(10).
 			Align(lipgloss.Right).
 			PaddingRight(1)
 
 	StatValueStyle = lipgloss.NewStyle().
-			Foreground(ColorSecondary).
+			Foreground(ColorText).
 			Bold(true).
-			Width(20).
+			Width(18).
 			Align(lipgloss.Left)
 )

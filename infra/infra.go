@@ -373,6 +373,49 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Value: webBucket.BucketName(),
 	})
 
+	// --- Phase 7: S3 File Transfer (Max 200MB, 24h Retention) ---
+
+	// 22. Transfer Bucket
+	transferBucket := awss3.NewBucket(stack, jsii.String("JendTransferBucket"), &awss3.BucketProps{
+		BlockPublicAccess: awss3.BlockPublicAccess_BLOCK_ALL(),
+		Encryption:        awss3.BucketEncryption_S3_MANAGED,
+		RemovalPolicy:     awscdk.RemovalPolicy_DESTROY, // Clean up easily
+		AutoDeleteObjects: jsii.Bool(true),              // for dev/test
+		LifecycleRules: &[]*awss3.LifecycleRule{
+			{
+				Expiration: awscdk.Duration_Days(jsii.Number(1)), // 24h retention
+				Id:         jsii.String("DeleteAfter24Hours"),
+			},
+		},
+		Cors: &[]*awss3.CorsRule{
+			{
+				AllowedMethods: &[]awss3.HttpMethods{
+					awss3.HttpMethods_GET,
+					awss3.HttpMethods_PUT,
+					awss3.HttpMethods_POST,
+					awss3.HttpMethods_HEAD,
+				},
+				AllowedOrigins: &[]*string{jsii.String("*")}, // Allow from anywhere (App/CLI)
+				AllowedHeaders: &[]*string{jsii.String("*")},
+			},
+		},
+	})
+
+	// Output Transfer Bucket Name
+	awscdk.NewCfnOutput(stack, jsii.String("TransferBucketName"), &awscdk.CfnOutputProps{
+		Value: transferBucket.BucketName(),
+	})
+
+	// 23. IAM Permissions for Unauth Role
+	// Allow PutObject (Upload) and GetObject (Download) on transfers/*
+	unauthRole.AddToPolicy(awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
+		Effect:  awsiam.Effect_ALLOW,
+		Actions: jsii.Strings("s3:PutObject", "s3:GetObject"),
+		Resources: jsii.Strings(
+			*transferBucket.BucketArn() + "/transfers/*",
+		),
+	}))
+
 	return stack
 }
 

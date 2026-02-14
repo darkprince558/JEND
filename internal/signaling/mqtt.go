@@ -28,6 +28,7 @@ func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 	// Check for custom endpoint (Testing/Local)
 	customEndpoint := os.Getenv("JEND_MQTT_ENDPOINT")
 	var brokerURL string
+	var req *http.Request
 
 	if customEndpoint != "" {
 		brokerURL = customEndpoint
@@ -36,10 +37,8 @@ func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 		// 1. Get AWS Credentials via Cognito
 		identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
 		if identityPoolID == "" {
-			// Hardcoded ID from previous versions - now invalid/deleted
-			// Check if we should even try to connect.
-			// Ideally, we just return an error here to signal "No Cloud Configured"
-			return nil, fmt.Errorf("cloud credentials not configured (JEND_IDENTITY_POOL_ID missing)")
+			// Updated with new cost-optimized deployment ID
+			identityPoolID = "us-east-1:6b98c4f2-9fea-4591-8b0f-f34be0a4da23"
 		}
 
 		// Initial config to get region/defaults
@@ -69,12 +68,14 @@ func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 		// 2. Sign the Websocket URL
 		// AWS IoT Core supports WSS on port 443 with SigV4
 		signer := v4.NewSigner()
-		req, _ := http.NewRequest("GET", fmt.Sprintf("wss://%s/mqtt", iotEndpoint), nil)
+		req, _ = http.NewRequest("GET", fmt.Sprintf("wss://%s/mqtt", iotEndpoint), nil)
 
 		// Sign the request
 		// We need to sign with service "iotdevicegateway"
 		// Payload hash for GET is empty string hash
 		emptyHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+		// Use SignHTTP (Header-based) which we verified works for WebSocket handshake
 		err = signer.SignHTTP(ctx, creds, req, emptyHash, "iotdevicegateway", region, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("failed to sign websocket request: %w", err)
@@ -85,6 +86,11 @@ func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 	// 3. Configure MQTT Client
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(brokerURL)
+
+	// Pass signed headers to Paho to use during WebSocket Handshake
+	if customEndpoint == "" && req != nil {
+		opts.SetHTTPHeaders(req.Header)
+	}
 	opts.SetClientID(clientID)
 	opts.SetCleanSession(true)
 	opts.SetAutoReconnect(true)
