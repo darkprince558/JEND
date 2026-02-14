@@ -57,21 +57,30 @@ Example:
 		} else if len(args) > 0 {
 			filePath = args[0]
 		} else {
-			// No file arg — launch interactive file picker (unless headless)
+			// No file arg — launch interactive wizard (unless headless)
 			if headless {
 				fmt.Println("Error: file path required in headless mode (use --text for text)")
 				os.Exit(1)
 			}
-			selected, err := ui.RunFilePicker()
+			wizResult, err := ui.RunSendWizard()
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			if selected == "" {
-				fmt.Println("No file selected.")
+			if wizResult.Cancelled {
+				fmt.Println("Cancelled.")
 				os.Exit(0)
 			}
-			filePath = selected
+
+			// Map wizard results to send params
+			filePath = wizResult.FilePath
+			textContent = wizResult.TextContent
+			isText = wizResult.IsText
+			useS3 = wizResult.UseS3
+			forceZip = wizResult.ForceZip
+			if wizResult.Incognito {
+				sendIncognito = true
+			}
 		}
 
 		// Handle Incognito

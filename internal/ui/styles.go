@@ -82,4 +82,53 @@ var (
 			Bold(true).
 			Width(18).
 			Align(lipgloss.Left)
+
+	// Wizard Styles
+	WizardHeaderStyle = lipgloss.NewStyle().
+				Foreground(ColorPrimary).
+				Bold(true).
+				MarginBottom(1)
+
+	RadioActiveStyle = lipgloss.NewStyle().
+				Foreground(ColorAccent).
+				Bold(true)
+
+	RadioInactiveStyle = lipgloss.NewStyle().
+				Foreground(ColorSubtext)
+
+	ToggleOnStyle = lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			Bold(true)
+
+	ToggleOffStyle = lipgloss.NewStyle().
+			Foreground(ColorSubtext)
+
+	StepDotActive = lipgloss.NewStyle().
+			Foreground(ColorAccent).
+			Bold(true)
+
+	StepDotInactive = lipgloss.NewStyle().
+			Foreground(ColorSubtext)
+
+	ConfirmLabelStyle = lipgloss.NewStyle().
+				Foreground(ColorSubtext).
+				Width(12).
+				Align(lipgloss.Right).
+				PaddingRight(2)
+
+	ConfirmValueStyle = lipgloss.NewStyle().
+				Foreground(ColorText).
+				Bold(true)
+
+	ConfirmCardStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorPanel).
+				Padding(1, 3).
+				MarginTop(1).
+				MarginBottom(1)
+
+	WizardHelpStyle = lipgloss.NewStyle().
+			Foreground(ColorSubtext).
+			Faint(true).
+			MarginTop(1)
 )
