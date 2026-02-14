@@ -40,17 +40,13 @@ func (c *LossyPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	r := c.rand.Float64()
 	c.mu.Unlock()
 
-	// 1. Simulate Loss
+	// Simulate Loss
 	if r < loss {
-		// Drop packet (return success to caller so they don't know)
 		return len(p), nil
 	}
 
-	// 2. Simulate Latency (in background goroutine to not block sender logic excessively,
-	// although blocking might be more realistic for link congestion?
-	// For UDP, non-blocking delay is better simulation of "on the wire" time)
+	// Simulate Latency
 	if lat > 0 {
-		// Isolate data buffer for async
 		data := make([]byte, len(p))
 		copy(data, p)
 		go func() {

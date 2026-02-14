@@ -32,19 +32,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayV2HTTPRequest) 
 	ttl := 3600
 	expiration := time.Now().Add(time.Duration(ttl) * time.Second).Unix()
 
-	// Username = expiration_timestamp : uuid (or just timestamp for simplicity)
-	// Standard TURN REST API: username = timestamp:salt (or just timestamp)
-	// coturn use-auth-secret format: username = timestamp
-	// Wait, coturn with --use-auth-secret expects username to be a timestamp?
-	// Coturn checks: username > current_time?
-	// Actually, the standard algorithm is:
-	// username = <expiry_timestamp>
-	// password = HMAC_SHA1(username, secret_key) -> Base64
-	//
-	// But usually we want a unique username.
-	// Coturn supports `timestamp:user_id` format if `use-auth-secret` is set.
-	// Let's use `timestamp:random_id`.
-
+	// Username format: <expiry_timestamp>:<user_id> (coturn use-auth-secret format)
 	username := fmt.Sprintf("%d:jend-user", expiration)
 
 	// HMAC-SHA1

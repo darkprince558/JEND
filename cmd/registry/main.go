@@ -50,10 +50,7 @@ type RegistryItem struct {
 // Handler handles the API Gateway requests
 func Handler(ctx context.Context, request events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
 	log.Printf("Processing request %s %s", request.RequestContext.HTTP.Method, request.RequestContext.HTTP.Path)
-
 	method := request.RequestContext.HTTP.Method
-	// Normalize path if needed, but for now we assume strict routing from API Gateway
-	// Or check request.RawPath
 
 	switch method {
 	case "POST":

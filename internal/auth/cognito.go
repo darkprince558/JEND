@@ -25,8 +25,6 @@ func NewCognitoProvider(cfg aws.Config, poolID string) *CognitoProvider {
 
 // Retrieve returns the set of credentials
 func (p *CognitoProvider) Retrieve(ctx context.Context) (aws.Credentials, error) {
-	// 1. Get Identity ID if not cached (or if creds expired, but ID usually persists? ID persists, Creds expire)
-	// For simplicity, we get ID every time or cache it. Caching is better for rate limits.
 	if p.identityID == "" {
 		idOutput, err := p.Client.GetId(ctx, &cognitoidentity.GetIdInput{
 			IdentityPoolId: aws.String(p.IdentityPoolID),

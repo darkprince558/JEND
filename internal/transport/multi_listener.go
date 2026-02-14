@@ -20,7 +20,7 @@ type MultiListener struct {
 
 func NewMultiListener() *MultiListener {
 	return &MultiListener{
-		conns:  make(chan *quic.Conn), // Unbuffered or buffered? Unbuffered is safer flow control logic usually, but buffered is fine.
+		conns:  make(chan *quic.Conn),
 		errors: make(chan error),
 		done:   make(chan struct{}),
 	}
@@ -36,9 +36,6 @@ func (m *MultiListener) Add(l QUICListener) {
 		for {
 			conn, err := l.Accept(context.Background())
 			if err != nil {
-				// If the listener is closed, we stop this loop.
-				// We don't propagate error necessarily as one listener failing shouldn't kill others (e.g. ICE fails but Direct works).
-				// But real errors might be useful logging?
 				return
 			}
 			select {

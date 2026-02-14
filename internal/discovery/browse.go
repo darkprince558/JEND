@@ -43,12 +43,7 @@ func FindSender(code string, timeout time.Duration) (string, error) {
 				if strings.HasPrefix(txt, "hash=") {
 					h := strings.TrimPrefix(txt, "hash=")
 					if h == targetHash {
-						// Match Found!
-						// Match Found!
-						// Prefer IPv6 for local link (usually better for P2P/AirDrop-like behavior)
-						// But for now, let's just return the first available address.
 						var ip net.IP
-						// Prefer IPv4 for local development robustness (avoids fe80:: zone issues)
 						if len(entry.AddrIPv4) > 0 {
 							ip = entry.AddrIPv4[0]
 						} else if len(entry.AddrIPv6) > 0 {

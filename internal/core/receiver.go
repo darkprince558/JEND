@@ -60,8 +60,6 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 		}
 	}
 
-	// time.Sleep(time.Second * 1) // Fake discovery time - REMOVED
-
 	startTime := time.Now()
 	var finalErr error
 	var fileHash string
@@ -105,14 +103,10 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 	// Create a transport early
 	tr := transport.NewQUICTransport()
 
-	// Dialer Strategy Pattern
-	// We determine HOW to connect (Direct IP or ICE P2P) and store it in this function.
 	var dialFunc func(context.Context) (*quic.Conn, error)
 	var connectionDesc string
 
-	// Try Discovery
-	// address := "localhost:" + Port // Removed unused var
-	foundIP, err := discovery.FindSender(code, 2*time.Second) // Reduced local timeout
+	foundIP, err := discovery.FindSender(code, 2*time.Second)
 	if err == nil {
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender at %s!", foundIP)))
 		dialectAddr := foundIP
@@ -163,19 +157,12 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 		} else {
 			sendMsg(ui.StatusMsg("Cloud lookup failed. Initiating P2P Signaling (ICE)..."))
 
-			// Start P2P Negotiation (Blocking for setup)
 			sigClient, errSig := signaling.NewIoTClient(context.Background(), "receiver-"+code)
 			if errSig == nil {
-				// Note: We keep sigClient connected if P2P manager needs it, or strictly for setup.
-				// The p2p manager currently uses it for signaling exchange then ICE takes over.
-				// We can disconnect after ICE is established, but let's defer carefully.
-				// defer sigClient.Disconnect() // Defer runs at function exit.
-
 				p2p := transport.NewP2PManager(sigClient, code, turnCfg)
-				pc, errIce := p2p.EstablishConnection(context.Background(), true) // true = Offerer (Receiver)
+				pc, errIce := p2p.EstablishConnection(context.Background(), true)
 
-				// We can disconnect signaling now that ICE is set
-				sigClient.Disconnect() // Explicitly disconnect
+				sigClient.Disconnect()
 
 				if errIce == nil {
 					sendMsg(ui.StatusMsg("P2P (ICE) Connected! Switching transport..."))
@@ -184,11 +171,9 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 						return tr.DialPacket(pc, nil)
 					}
 				} else {
-					// NON-FATAL ERROR: ICE Failed
 					sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("P2P ICE Failed: %v", errIce), Level: ui.LevelWarning})
 				}
 			} else {
-				// NON-FATAL ERROR: Signaling Failed
 				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Signaling Auth Failed: %v. Using local network only.", errSig), Level: ui.LevelWarning})
 			}
 		}
@@ -203,31 +188,24 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 		}
 	}
 
-	// Main Receiver Loop
-	// We will attempt to authenticate and resume until complete or fatal error
-
 	retryCount := 0
-	maxRetries := 10 // Global retries for connection establishment
+	maxRetries := 10
 	triedLocalhost := false
 
 	for {
 
 		sendMsg(ui.StatusMsg("Dialing " + connectionDesc + "..."))
 
-		// Use the strategy
 		conn, err := dialFunc(context.Background())
 
 		if err != nil {
 			retryCount++
 			if retryCount > maxRetries {
 				finalErr = err
-				// FATAL ERROR
 				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("max retries exceeded: %v", err), Level: ui.LevelFatal})
 				return
 			}
 
-			// Smart Fallback for Local Testing
-			// If discovery found an IP but it's not working (firewall?), validation via localhost often fixes it.
 			if retryCount > 2 && !triedLocalhost && connectionDesc != "localhost" {
 				sendMsg(ui.StatusMsg("Connection failing. Attempting fallback to localhost..."))
 				dialFunc = func(ctx context.Context) (*quic.Conn, error) {
@@ -235,7 +213,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 				}
 				connectionDesc = "localhost (Fallback)"
 				triedLocalhost = true
-				retryCount = 0 // Reset retries for the new strategy
+				retryCount = 0
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
@@ -245,13 +223,11 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 			continue
 		}
 
-		// Reset retry count on successful dial
 		retryCount = 0
 		sendMsg(ui.StatusMsg("Connected! Opening stream..."))
 
 		stream, err := conn.OpenStreamSync(context.Background())
 		if err != nil {
-			// Transient Error
 			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to open stream: %v", err), Level: ui.LevelWarning})
 			conn.CloseWithError(0, "stream open failed")
 			time.Sleep(time.Second)
@@ -264,22 +240,17 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 		fileHash = hash
 
 		if done {
-			// Success!
 			return
 		}
 
 		if err != nil {
-			// Check for cancellation
 			if strings.Contains(err.Error(), "transfer cancelled by sender") {
 				finalErr = err
-				// FATAL ERROR
 				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
-			// Transient Error
 			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("transfer interrupted (%v). Retrying...", err), Level: ui.LevelWarning})
 			stream.Close()
-			// Close connection if not already closed
 			conn.CloseWithError(0, "interrupted")
 			time.Sleep(time.Second)
 			continue
@@ -303,24 +274,22 @@ func handleReceiveSession(
 	var fileSize int64
 	var fileHash string
 
-	// 1. PAKE Authentication
+	// PAKE Authentication
 	sendMsg(ui.StatusMsg("Authenticating..."))
 	key, err := PerformPAKE(stream, code, 1)
 	if err != nil {
 		return false, 0, "", fmt.Errorf("authentication failed: %v", err)
 	}
 
-	// Upgrade to Secure Stream
 	secureStream, err := NewSecureStream(stream, key)
 	if err != nil {
 		return false, 0, "", fmt.Errorf("failed to create secure stream: %v", err)
 	}
 	stream = secureStream
 
-	// 2. Handshake
+	// Handshake
 	sendMsg(ui.StatusMsg("Authenticated! Waiting for handshake..."))
 
-	// Read Handshake
 	pType, length, err := protocol.DecodeHeader(stream)
 	if err != nil || pType != protocol.TypeHandshake {
 		return false, 0, "", fmt.Errorf("invalid handshake")
@@ -339,7 +308,6 @@ func handleReceiveSession(
 
 	// ---- CONFIRMATION PROMPT ----
 	if !autoApprove {
-		// If we are in TUI mode
 		if p != nil {
 			respChan := make(chan bool)
 			p.Send(ui.RequestApprovalMsg{
@@ -348,28 +316,18 @@ func handleReceiveSession(
 				Resp: respChan,
 			})
 
-			// Wait for user Answer
 			accepted := <-respChan
 			if !accepted {
-				// Send Cancel to Sender
 				protocol.EncodeHeader(stream, protocol.TypeCancel, 0)
 				return false, 0, "", fmt.Errorf("transfer cancelled by user")
 			}
 		}
-		// If Headless, we default to ACCEPT because --headless usually implies automation,
-		// OR we could reject. The plan said "Headless returns true".
-		// Actually, if they didn't pass --yes in headless, maybe we should warn?
-		// But for now, let's stick to: Headless = Auto Accept (Standard unix tool behavior)
 	}
 	// -----------------------------
 
-	// Handle Text Mode
 	if meta.Type == "text" {
-		// Just check size warnings
 		sendMsg(ui.StatusMsg("Receiving text snippet..."))
 
-		// Read all data
-		// Limit size for safety (e.g. 1MB for text)
 		limit := int64(1 * 1024 * 1024)
 		if meta.Size > limit {
 			return false, meta.Size, "", fmt.Errorf("text content too large (>1MB)")
@@ -389,8 +347,6 @@ func handleReceiveSession(
 		}
 	}
 
-	// Decide on Parallel vs Sequential
-	// Threshold: 100MB
 	useParallel := meta.Size > 100*1024*1024 && meta.Type != "text"
 
 	if useParallel {
@@ -398,8 +354,7 @@ func handleReceiveSession(
 		return downloadParallel(conn, stream, meta, outputDir, safeName, sendMsg, code, concurrency) // Call specialized function
 	}
 
-	// Fallback to Sequential (Original Logic)
-	// Send Ack
+	// Sequential Download
 	partialPath := filepath.Join(outputDir, safeName+".partial")
 	var offset int64 = 0
 
@@ -421,21 +376,17 @@ func handleReceiveSession(
 
 	sendMsg(ui.StatusMsg("Receiving " + safeName))
 
-	// Continuation of Sequential Logic variables
 	var outFile io.WriteCloser
 	var textBuf *bytes.Buffer
 
 	if meta.Type == "text" {
 		textBuf = new(bytes.Buffer)
-		// wrapper to satisfy WriteCloser
 		outFile = &nopCloser{textBuf}
 	} else {
 		var f *os.File
 		if offset > 0 {
-			// Resume: Open in Append mode
 			f, err = os.OpenFile(partialPath, os.O_WRONLY|os.O_APPEND, 0644)
 		} else {
-			// New: Create/Truncate
 			f, err = os.Create(partialPath)
 		}
 		if err != nil {
@@ -445,14 +396,12 @@ func handleReceiveSession(
 	}
 	defer outFile.Close()
 
-	// Receive Loop
 	buf := make([]byte, ChunkSize)
 	var totalRecv int64 = offset
 	startTime := time.Now()
 
 	hasher := sha256.New()
 
-	// If resuming, we must hash the existing part first so the final hash matches the full file
 	if offset > 0 {
 		existingFile, err := os.Open(partialPath)
 		if err != nil {
@@ -485,7 +434,6 @@ func handleReceiveSession(
 		}
 
 		if pType == protocol.TypeData {
-			// Reallocate if buf too small
 			if uint32(len(buf)) < length {
 				buf = make([]byte, length)
 			}
@@ -495,7 +443,7 @@ func handleReceiveSession(
 			mw.Write(buf[:length])
 			totalRecv += int64(length)
 
-			// Calculate Telemetry
+			// Telemetry
 			elapsed := time.Since(startTime).Seconds()
 			var speed float64
 			var eta time.Duration
@@ -516,18 +464,14 @@ func handleReceiveSession(
 		}
 	}
 
-	// Close stream using type assertion if needed, or rely on connection close.
-	// io.ReadWriter doesn't have Close.
 	if c, ok := stream.(io.Closer); ok {
 		c.Close()
 	}
 	// Don't send 100% progress yet — text/file handling below needs to
 	// run before the TUI quits (ProgressMsg with ratio>=1.0 triggers tea.Quit)
 
-	// Close explicitly to allow rename
 	outFile.Close()
 
-	// Verify Checksum
 	finalPath := filepath.Join(outputDir, safeName)
 	if meta.Hash != "" {
 		recvHash := fmt.Sprintf("%x", hasher.Sum(nil))
@@ -547,9 +491,7 @@ func handleReceiveSession(
 				return true, fileSize, meta.Hash, nil
 			}
 
-			// Safe Move Logic
 			counter := 0
-			// Find a non-colliding name
 			for {
 				if _, err := os.Stat(finalPath); os.IsNotExist(err) {
 					break
@@ -563,7 +505,7 @@ func handleReceiveSession(
 			if err := os.Rename(partialPath, finalPath); err != nil {
 				return false, fileSize, "", fmt.Errorf("failed to save final file: %v", err)
 			}
-			fileHash = meta.Hash // Set hash for audit log only on success
+			fileHash = meta.Hash
 			sendMsg(ui.StatusMsg("Saved to: " + filepath.Base(finalPath)))
 			sendMsg(ui.ProgressMsg{SentBytes: meta.Size, TotalBytes: meta.Size})
 
@@ -597,7 +539,6 @@ func handleReceiveSession(
 		ext := filepath.Ext(safeName)
 		if strings.HasSuffix(safeName, ".tar.gz") {
 			sendMsg(ui.StatusMsg("Unzipping .tar.gz archive..."))
-			// Re-open the file
 			f, err := os.Open(finalPath)
 			if err != nil {
 				return true, fileSize, fileHash, err // Return true because transfer succeeded, unzip failed
@@ -621,7 +562,6 @@ func handleReceiveSession(
 					return true, fileSize, fileHash, err
 				}
 
-				// Zip Slip Protection
 				target := filepath.Join(outputDir, header.Name)
 				if !strings.HasPrefix(target, filepath.Clean(outputDir)+string(os.PathSeparator)) {
 					// log.Println("zip slip attempt detected")
@@ -649,7 +589,6 @@ func handleReceiveSession(
 		} else if ext == ".zip" {
 			sendMsg(ui.StatusMsg("Unzipping .zip archive..."))
 
-			// zip.OpenReader requires random access, safe since we have the file on disk
 			zr, err := zip.OpenReader(finalPath)
 			if err != nil {
 				return true, fileSize, fileHash, err
@@ -659,7 +598,7 @@ func handleReceiveSession(
 			for _, f := range zr.File {
 				fpath := filepath.Join(outputDir, f.Name)
 
-				// Check for Zip Slip
+				// Zip Slip protection
 				if !strings.HasPrefix(fpath, filepath.Clean(outputDir)+string(os.PathSeparator)) {
 					continue
 				}

@@ -84,11 +84,6 @@ func init() {
 	configCmd.AddCommand(configClearCmd)
 	configCmd.AddCommand(configShowCmd)
 
-	// Reuse variables from send/receive (or define new ones if careful)
-	// We'll trust flags work if we attach them here.
-	// But globals in main package logic is brittle.
-	// Let's use the globals defined in send.go/receive.go (they are in package main)
-	// assuming they are accessible. They are.
 	configSetRelayCmd.Flags().StringVar(&relayURL, "url", "", "TURN Relay URL")
 	configSetRelayCmd.Flags().StringVar(&relayUser, "user", "", "TURN Relay Username")
 	configSetRelayCmd.Flags().StringVar(&relayPass, "pass", "", "TURN Relay Password")

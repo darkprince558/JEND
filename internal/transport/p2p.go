@@ -32,21 +32,18 @@ func NewP2PManager(sig *signaling.IoTClient, code string, turnCfg *CustomTurnCon
 // It acts as the Offerer if isOfferer is true (Receiver role), otherwise as Answerer (Sender role).
 func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (net.PacketConn, error) {
 	// 1. Create ICE Agent
-	agent, err := NewICEAgent(ctx, isOfferer, m.TurnConfig) // Defined in ice.go
+	agent, err := NewICEAgent(ctx, isOfferer, m.TurnConfig)
 	if err != nil {
 		return nil, err
 	}
 	m.Agent = agent
 
-	// 2. Setup Signaling Topic
 	topic := fmt.Sprintf("jend/signal/%s", m.Code)
 
-	// Channels for signaling flow
 	remoteCandidates := make(chan string, 10)
 	remoteUfrag := make(chan string, 1)
 	remotePwd := make(chan string, 1)
 
-	// 3. Subscribe to Signaling
 	err = m.Signaling.Subscribe(topic, func(client mqtt.Client, msg mqtt.Message) {
 		var sigMsg signaling.SignalMessage
 		if err := json.Unmarshal(msg.Payload(), &sigMsg); err != nil {
@@ -101,7 +98,6 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (n
 		m.Signaling.Publish(topic, payload)
 	})
 
-	// 5. Gather Candidates
 	if err := agent.GatherCandidates(); err != nil {
 		return nil, err
 	}

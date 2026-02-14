@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -89,18 +88,15 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 	// 1. S3 Transfer Mode
 	if useS3 {
-		// Need to get Identity Pool ID similar to how mqtt.go does it.
-		// Ideally this should be passed in or centralized config.
-		// For PoC, we read env or use default.
+
 		identityPoolID := os.Getenv("JEND_IDENTITY_POOL_ID")
 		if identityPoolID == "" {
 			identityPoolID = "us-east-1:6b98c4f2-9fea-4591-8b0f-f34be0a4da23"
 		}
-		region := "us-east-1" // Hardcoded for PoC
+		region := "us-east-1"
 
 		sendMsg(ui.StatusMsg("Uploading to S3 (max 200MB)..."))
 
-		// If text, save to temp file first
 		if isText {
 			tmpFile, err := os.CreateTemp("", "jend-text-*.txt")
 			if err != nil {
@@ -255,11 +251,9 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			if err != nil {
 				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Could not enable file lock: %v", err), Level: ui.LevelWarning})
 			} else if !locked {
-				// File is busy
 				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("File is currently in use by another process. Changes during transfer may corrupt data."), Level: ui.LevelWarning})
 			} else {
-				// Lock acquired!
-				// sendMsg(ui.StatusMsg("File locked for reading."))
+				// Lock acquired
 			}
 
 			fileName = info.Name()
@@ -292,8 +286,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	multiListener.Add(directListener)
 
 	// Start Advertising
-	// We need to parse port for advertisement
-	portInt := 9000 // Default fallback
+	portInt := 9000
 	fmt.Sscanf(port, "%d", &portInt)
 	stopAdvertising, err := discovery.StartAdvertising(portInt, code)
 	if err != nil {
@@ -302,16 +295,9 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		defer stopAdvertising()
 		sendMsg(ui.StatusMsg("Broadcasting on local network..."))
 
-		// Also register with Cloud Registry for P2P (if not S3)
 		regClient := discovery.NewRegistryClient()
 		portInt, _ := strconv.Atoi(port)
-
-		// We pass empty IP to let server infer it, or rely on ICE.
-		// We pass nil metadata for standard P2P.
-		if err := regClient.Register(code, "", portInt, nil); err != nil {
-			// Non-fatal
-			// sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Cloud Registration Failed: %v", err), Level: ui.LevelWarning})
-		}
+		regClient.Register(code, "", portInt, nil)
 	}
 
 	// Start Signaling (MQTT)
@@ -319,42 +305,32 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		sendMsg(ui.StatusMsg("Connecting to Signaling Network..."))
 		sigClient, err := signaling.NewIoTClient(context.Background(), "sender-"+code)
 		if err != nil {
-			// Do not fail hard. Just log warning and rely on local MDNS.
-			// Warn only
 			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Cloud signaling unavailable (%v). Using local network only.", err), Level: ui.LevelWarning})
 			return
 		}
-		// sendMsg(ui.StatusMsg("Signaling Connected. Waiting for peer..."))
 		defer sigClient.Disconnect()
 
-		// Initialize P2P manager
 		p2p := transport.NewP2PManager(sigClient, code, turnCfg)
 
-		// This blocks until ICE connects
-		pc, err := p2p.EstablishConnection(ctx, false) // false = Answerer (Sender)
+		pc, err := p2p.EstablishConnection(ctx, false)
 		if err != nil {
-			// Warn only
 			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("P2P Signaling failed: %v", err), Level: ui.LevelWarning})
 			return
 		}
 		sendMsg(ui.StatusMsg("P2P (ICE) Connected! Joining listener pool..."))
 
-		// 2. Start QUIC Listener on ICE connection
 		iceListener, err := tr.ListenPacket(pc)
 		if err != nil {
 			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Failed to listen on ICE: %v", err), Level: ui.LevelWarning})
 			return
 		}
 
-		// Add to MultiListener
 		multiListener.Add(iceListener)
 		sendMsg(ui.StatusMsg("ICE Tunnel Active (Dual-Mode)"))
 	}()
 
-	// Wait for connection Loop
 	sendMsg(ui.StatusMsg(fmt.Sprintf("Waiting for receiver (timeout: %s)...", timeout)))
 
-	// State for resume
 	var currentOffset int64 = 0
 
 	for {
@@ -371,7 +347,6 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		default:
 		}
 
-		// Use Passed Context for Accept (handles cancellation)
 		acceptCtx, cancel := context.WithTimeout(ctx, timeout-time.Since(startTime))
 		conn, err := multiListener.Accept(acceptCtx)
 		cancel()
@@ -393,20 +368,15 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Receiver connected (%s)! Opening stream...", conn.RemoteAddr())))
 
-		// Parallel Stream Handling Loop
 		var wg sync.WaitGroup
 		var streamID int = 0
 		var transferDone bool
-
-		// Context to control the accept loop
 		acceptCtx, cancelAccept := context.WithCancel(context.Background())
 		defer cancelAccept()
 
 		for {
-			// Accept Stream (blocks until stream opens or connection dies)
 			stream, err := conn.AcceptStream(acceptCtx)
 			if err != nil {
-				// Connection closed or context cancelled
 				break
 			}
 
@@ -416,37 +386,27 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			wg.Add(1)
 			go func(s io.ReadWriter, first bool) {
 				defer wg.Done()
-				// Ensure we close the stream when done so Receiver gets EOF
 				defer func() {
 					if c, ok := s.(io.Closer); ok {
 						c.Close()
 					}
 				}()
 
-				done, err := handleConnection(ctx, s, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg, false)
+				done, _ := handleConnection(ctx, s, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg, false)
 				if done {
-					// Transfer completed!
-					// Stop accepting new streams, but let existing ones finish flushing
 					cancelAccept()
 					transferDone = true
 				}
-				if err != nil && !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "cancelled") && !strings.Contains(err.Error(), "closed") && !strings.Contains(err.Error(), "context canceled") {
-					// sendMsg(ui.ErrorMsg(err))
-				}
 			}(stream, isFirst)
 		}
-		// Wait for all active streams to finish
 		wg.Wait()
 
-		// If transfer completed successfully, exit
 		if transferDone {
-			// Send final progress to trigger TUI quit (ratio >= 1.0)
 			sendMsg(ui.ProgressMsg{SentBytes: fileSize, TotalBytes: fileSize})
 			sendMsg(ui.StatusMsg("Transfer complete!"))
 			return
 		}
 
-		// If we are here, connection is done/closed.
 		if ctx.Err() != nil {
 			return
 		}
@@ -479,22 +439,18 @@ func handleConnection(
 			return false, fmt.Errorf("authentication failed: %v", err)
 		}
 
-		// Upgrade to Secure Stream
 		secureStream, err := NewSecureStream(stream, key)
 		if err != nil {
 			return false, fmt.Errorf("failed to create secure stream: %v", err)
 		}
-		// Replace the stream with the secure version
 		stream = secureStream
 
 		sendMsg(ui.StatusMsg("Authenticated! Connection Encrypted."))
 	}
 
-	// Calculate Code Hash
 	sendMsg(ui.StatusMsg("Calculating checksum..."))
 	hasher := sha256.New()
 
-	// Reset reader if it's an os.File or bytes.Reader-like
 	if seeker, ok := file.(io.Seeker); ok {
 		if _, err := seeker.Seek(0, 0); err != nil {
 			return false, err
@@ -506,7 +462,6 @@ func handleConnection(
 	}
 	fileHash := fmt.Sprintf("%x", hasher.Sum(nil))
 
-	// Handshake
 	meta := map[string]interface{}{
 		"name": fileName,
 		"size": fileSize,
@@ -537,7 +492,6 @@ func handleConnection(
 	var byteLimit int64 = -1 // -1 means until EOF
 
 	if pType == protocol.TypeAck {
-		// Standard sequential download (or resume)
 		if length == 8 {
 			if err := binary.Read(stream, binary.LittleEndian, &offset); err != nil {
 				return false, err
@@ -547,8 +501,6 @@ func handleConnection(
 			}
 		}
 	} else if pType == protocol.TypeRangeReq {
-		// Parallel Stream Request
-		// Payload: [StartOffset int64][Length int64]
 		if length != 16 {
 			return false, fmt.Errorf("invalid range request length")
 		}
@@ -567,19 +519,15 @@ func handleConnection(
 		return false, fmt.Errorf("unexpected packet type: %d", pType)
 	}
 
-	// Parallel/Concurrent Read implementation using ReaderAt
 	var dataReader io.Reader
 	if readerAt, ok := file.(io.ReaderAt); ok {
-		// Use SectionReader for thread-safe concurrent access
 		limit := fileSize - offset
 		if byteLimit > 0 {
 			limit = byteLimit
 		}
 		dataReader = io.NewSectionReader(readerAt, offset, limit)
 	} else {
-		// Fallback for non-ReaderAt (e.g. stdin/text)
 		if offset > 0 {
-			// Try to seek if possible
 			if seeker, ok := file.(io.Seeker); ok {
 				if _, err := seeker.Seek(offset, 0); err != nil {
 					return false, err
@@ -591,27 +539,17 @@ func handleConnection(
 		dataReader = file
 	}
 
-	// Send Data
-	// sendMsg(ui.StatusMsg("Sending data..."))
 	buf := make([]byte, ChunkSize)
 	var totalSent int64 = 0
 
-	// If byteLimit is set, we only send that much
 	var bytesRemaining int64 = -1
 	if byteLimit > 0 {
 		bytesRemaining = byteLimit
-	} else {
-		// limit for loop logic (if infinite)
 	}
 
-	// actually SectionReader handles EOF at limit automatically.
-	// So we can just read from dataReader until EOF.
-
 	for {
-		// Check Cancellation
 		select {
 		case <-ctx.Done():
-			// sendMsg(ui.StatusMsg("Stopping transfer (User Cancelled)..."))
 			protocol.EncodeHeader(stream, protocol.TypeCancel, 0)
 			return false, ctx.Err()
 		default:
@@ -623,9 +561,7 @@ func handleConnection(
 			time.Sleep(d)
 		}
 
-		// Calculate read size
 		readSize := ChunkSize
-		// We don't strictly need manual limiting if SectionReader is used, but good for chunking.
 		if bytesRemaining > 0 && int64(readSize) > bytesRemaining {
 			readSize = int(bytesRemaining)
 		}
@@ -645,7 +581,7 @@ func handleConnection(
 			}
 		}
 		if bytesRemaining == 0 {
-			break // Done with range
+			break
 		}
 		if err == io.EOF {
 			break
@@ -654,7 +590,6 @@ func handleConnection(
 			return false, err
 		}
 	}
-	// Done with this stream
 	return true, nil
 }
 
@@ -677,11 +612,9 @@ func CompressPath(filePath string, format string) (string, error) {
 				return err
 			}
 
-			// Use filepath.Dir(filePath) to ensure we include the base name of the file/folder being compressed
-			// e.g. send "testdir" -> archive contains "testdir/file1", not just "file1"
 			base := filepath.Dir(filePath)
 			if base == "." {
-				base = "" // handle current dir case
+				base = ""
 			}
 			relPath, err := filepath.Rel(base, path)
 			if err != nil {

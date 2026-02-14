@@ -37,25 +37,17 @@ func downloadParallel(
 	concurrency int,
 ) (bool, int64, string, error) {
 
-	// 1. Setup Output File and Meta File
+	// Setup Output File and Meta File
 	finalPath := filepath.Join(outputDir, safeName)
 	parallelPath := filepath.Join(outputDir, safeName+".parallel.part")
 	metaPath := filepath.Join(outputDir, safeName+".parallel.meta")
 
-	// Load or Initialize State
 	state, err := loadOrInitState(metaPath, meta.Size, concurrency)
 	if err != nil {
 		return false, meta.Size, "", fmt.Errorf("metadata error: %w", err)
 	}
 
-	// Adjust concurrency if resuming with different count (simple: fail or reset, complex: rebalance)
-	// For MVP: if worker count mismatches, we technically currently support arbitrary chunks,
-	// but let's just warn or reset if completely incompatible?
-	// Actually, since we track chunks by size, if we change concurrency, the chunk size changes.
-	// We should probably respect the SAVED concurrency/chunksize to avoid complex re-chunking logic for now.
 	if len(state.Chunks) != concurrency && len(state.Chunks) > 0 {
-		// New concurrency setting does not match saved state.
-		// Option A: Reset. Option B: Force use saved concurrency.
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Resuming with saved concurrency: %d (ignoring requested %d)", len(state.Chunks), concurrency)))
 		concurrency = len(state.Chunks)
 	}
@@ -70,7 +62,6 @@ func downloadParallel(
 		return false, meta.Size, "", fmt.Errorf("failed to pre-allocate file: %w", err)
 	}
 
-	// Calculate completed bytes
 	var completedBytes int64 = 0
 	for _, c := range state.Chunks {
 		if c.Done {
@@ -82,18 +73,17 @@ func downloadParallel(
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Resuming parallel download... (%d%% done)", (completedBytes*100)/meta.Size)))
 	}
 
-	// 3. Define Workers
+	// Launch Workers
 	var wg sync.WaitGroup
 	errChan := make(chan error, concurrency)
 	progressChan := make(chan int64, 100)
 
 	startTime := time.Now()
 
-	// Launch workers for INCOMPLETE chunks
 	activeWorkers := 0
 	for i, chunk := range state.Chunks {
 		if chunk.Done {
-			continue // Skip completed chunks
+			continue
 		}
 		activeWorkers++
 		wg.Add(1)
@@ -101,64 +91,51 @@ func downloadParallel(
 		go func(id int, start, length int64) {
 			defer wg.Done()
 
-			// Each worker needs a stream.
-			var s io.ReadWriter
-			// Reuse control stream ONLY if it's the first worker AND no other worker took it?
-			// Simpler: Just open new streams for everyone to avoid state confusion,
-			// UNLESS we want to save a RTT.
-			// Let's open new streams for robustness on resume.
-			// BUT the sender expects RangeReq on any authenticated stream.
-
-			// We need PAKE auth on new streams.
+			// Each worker opens a new stream for robustness on resume.
 			ns, err := conn.OpenStreamSync(context.Background())
 			if err != nil {
 				errChan <- err
 				return
 			}
 			defer ns.Close()
-			s = ns
-			// Authenticate sub-stream
-			key, err := PerformPAKE(s, password, 1) // Role 1 = Receiver
+
+			key, err := PerformPAKE(ns, password, 1)
 			if err != nil {
 				errChan <- fmt.Errorf("worker %d pake failed: %w", id, err)
 				return
 			}
 
-			// Upgrade
-			secureStream, err := NewSecureStream(s, key)
+			secureStream, err := NewSecureStream(ns, key)
 			if err != nil {
 				errChan <- fmt.Errorf("worker %d failed to upgrade stream: %w", id, err)
 				return
 			}
-			s = secureStream
 
-			// Consume Handshake from sender (it sends it after PAKE)
-			_, l, err := protocol.DecodeHeader(s)
+			// Consume sender handshake
+			_, l, err := protocol.DecodeHeader(secureStream)
 			if err != nil {
 				errChan <- err
 				return
 			}
-			io.CopyN(io.Discard, s, int64(l))
+			io.CopyN(io.Discard, secureStream, int64(l))
 
-			// Send Range Request
-			if err := protocol.EncodeHeader(s, protocol.TypeRangeReq, 16); err != nil {
+			if err := protocol.EncodeHeader(secureStream, protocol.TypeRangeReq, 16); err != nil {
 				errChan <- err
 				return
 			}
-			if err := binary.Write(s, binary.LittleEndian, start); err != nil {
+			if err := binary.Write(secureStream, binary.LittleEndian, start); err != nil {
 				errChan <- err
 				return
 			}
-			if err := binary.Write(s, binary.LittleEndian, length); err != nil {
+			if err := binary.Write(secureStream, binary.LittleEndian, length); err != nil {
 				errChan <- err
 				return
 			}
 
-			// Receive Data Loop
 			buf := make([]byte, 64*1024)
 			var receivedLocal int64 = 0
 			for {
-				pType, l, err := protocol.DecodeHeader(s)
+				pType, l, err := protocol.DecodeHeader(secureStream)
 				if err != nil {
 					if err == io.EOF {
 						break
@@ -170,7 +147,7 @@ func downloadParallel(
 					if int(l) > len(buf) {
 						buf = make([]byte, l)
 					}
-					if _, err := io.ReadFull(s, buf[:l]); err != nil {
+					if _, err := io.ReadFull(secureStream, buf[:l]); err != nil {
 						errChan <- err
 						return
 					}
@@ -186,7 +163,6 @@ func downloadParallel(
 			}
 
 			if receivedLocal == length {
-				// Mark chunk done
 				markChunkDone(metaPath, id)
 			}
 		}(i, chunk.Start, chunk.Length)
@@ -232,7 +208,6 @@ func downloadParallel(
 		return false, meta.Size, "", <-errChan
 	}
 
-	// Cleanup
 	os.Rename(parallelPath, finalPath)
 	os.Remove(metaPath)
 
@@ -254,7 +229,6 @@ type Chunk struct {
 }
 
 func loadOrInitState(metaPath string, totalSize int64, chunks int) (*DownloadState, error) {
-	// Try load
 	data, err := os.ReadFile(metaPath)
 	if err == nil {
 		var state DownloadState
@@ -265,7 +239,6 @@ func loadOrInitState(metaPath string, totalSize int64, chunks int) (*DownloadSta
 		}
 	}
 
-	// Init
 	state := &DownloadState{
 		TotalSize: totalSize,
 		Chunks:    make([]Chunk, chunks),
@@ -296,15 +269,6 @@ func saveState(path string, state *DownloadState) {
 }
 
 func markChunkDone(path string, id int) {
-	// Simple RMW (Race condition possible if multiple workers finish exactly same time?
-	// Realistically file system lock or mutex needed, but for MVP this is okay-ish as they are distinct chunks)
-	// Better: Use a file lock.
-	// We'll trust optimistic update for this PoC or just re-read.
-	// Since we are inside a process, we should use a memory mutex?
-	// But we need persistence.
-	// Let's do a quick read-modify-write.
-
-	// In a real app we'd use a proper DB or flock.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
