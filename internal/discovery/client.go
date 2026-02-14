@@ -7,12 +7,12 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/darkprince558/jend/internal/config"
 )
 
 const (
-	// In a real app, this might be configurable via flags or env vars.
-	// For this PoC, we use the deployed endpoint.
-	apiEndpoint = "https://ei6hnj0udh.execute-api.us-east-1.amazonaws.com"
+	apiEndpoint = config.DefaultAPIEndpoint
 )
 
 // RegistryClient handles interaction with the global JEND Registry Service.

@@ -107,7 +107,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 	var dialFunc func(context.Context) (*quic.Conn, error)
 	var connectionDesc string
 
-	foundIP, err := discovery.FindSender(code, 2*time.Second)
+	foundIP, err := discovery.FindSender(code, config.DefaultLocalDiscoveryTimeout)
 	if err == nil {
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender at %s!", foundIP)))
 		dialectAddr := foundIP
@@ -186,7 +186,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 	}
 
 	retryCount := 0
-	maxRetries := 10
+	maxRetries := config.MaxConnectionRetries
 	triedLocalhost := false
 
 	for {
@@ -325,7 +325,7 @@ func handleReceiveSession(
 	if meta.Type == "text" {
 		sendMsg(ui.StatusMsg("Receiving text snippet..."))
 
-		limit := int64(1 * 1024 * 1024)
+		limit := int64(config.MaxTextSize)
 		if meta.Size > limit {
 			return false, meta.Size, "", fmt.Errorf("text content too large (>1MB)")
 		}
@@ -344,7 +344,7 @@ func handleReceiveSession(
 		}
 	}
 
-	useParallel := meta.Size > 100*1024*1024 && meta.Type != "text"
+	useParallel := meta.Size > config.ParallelThreshold && meta.Type != "text"
 
 	if useParallel {
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Large file detected (%d MB). Using %d parallel streams...", meta.Size/1024/1024, concurrency)))
@@ -393,7 +393,7 @@ func handleReceiveSession(
 	}
 	defer outFile.Close()
 
-	buf := make([]byte, ChunkSize)
+	buf := make([]byte, config.ChunkSize)
 	var totalRecv int64 = offset
 	startTime := time.Now()
 

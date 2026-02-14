@@ -11,13 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/darkprince558/jend/internal/auth"
-)
-
-const (
-	// Max 200MB
-	MaxS3FileSize = 200 * 1024 * 1024
-	// Bucket Name (Will be updated after deployment or passed via env)
-	BucketName = "jendinfrastackv4-jendtransferbucket839f7c9a-knwjudei1o5l"
+	jendcfg "github.com/darkprince558/jend/internal/config"
 )
 
 // UploadToS3 uploads a file to the transfer bucket and returns the object key.
@@ -27,8 +21,8 @@ func UploadToS3(ctx context.Context, filePath string, code string, identityPoolI
 	if err != nil {
 		return "", fmt.Errorf("failed to stat file: %w", err)
 	}
-	if info.Size() > MaxS3FileSize {
-		return "", fmt.Errorf("file size %d exceeds limit of %d bytes (200MB)", info.Size(), MaxS3FileSize)
+	if info.Size() > jendcfg.MaxS3FileSize {
+		return "", fmt.Errorf("file size %d exceeds limit of %d bytes (200MB)", info.Size(), jendcfg.MaxS3FileSize)
 	}
 
 	// 2. Load Config with Cognito Credentials
@@ -55,7 +49,7 @@ func UploadToS3(ctx context.Context, filePath string, code string, identityPoolI
 	key := fmt.Sprintf("transfers/%s/%s", code, filepath.Base(filePath))
 
 	_, err = uploader.Upload(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(BucketName),
+		Bucket: aws.String(jendcfg.DefaultS3Bucket),
 		Key:    aws.String(key),
 		Body:   f,
 	})
@@ -93,7 +87,7 @@ func DownloadFromS3(ctx context.Context, key string, outputDir string, identityP
 	defer f.Close()
 
 	_, err = downloader.Download(ctx, f, &s3.GetObjectInput{
-		Bucket: aws.String(BucketName),
+		Bucket: aws.String(jendcfg.DefaultS3Bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {

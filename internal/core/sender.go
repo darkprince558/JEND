@@ -30,10 +30,6 @@ import (
 	"github.com/gofrs/flock"
 )
 
-const (
-	ChunkSize = 1024 * 64
-)
-
 // RunSender handles the main sending logic
 func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, port string, timeout time.Duration, forceTar, forceZip bool, noHistory bool, turnCfg *transport.CustomTurnConfig, useS3 bool) {
 	startTime := time.Now()
@@ -537,7 +533,7 @@ func handleConnection(
 		dataReader = file
 	}
 
-	buf := make([]byte, ChunkSize)
+	buf := make([]byte, config.ChunkSize)
 	var totalSent int64 = 0
 
 	var bytesRemaining int64 = -1
@@ -559,7 +555,7 @@ func handleConnection(
 			time.Sleep(d)
 		}
 
-		readSize := ChunkSize
+		readSize := config.ChunkSize
 		if bytesRemaining > 0 && int64(readSize) > bytesRemaining {
 			readSize = int(bytesRemaining)
 		}

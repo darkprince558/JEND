@@ -8,12 +8,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/darkprince558/jend/internal/config"
 	"github.com/pion/ice/v2"
 )
 
 const (
-	StunServer = "stun:stun.l.google.com:19302"
-	AuthAPI    = "https://ei6hnj0udh.execute-api.us-east-1.amazonaws.com/turn-auth"
+	StunServer = config.DefaultSTUNServer
+	AuthAPI    = config.DefaultAPIEndpoint + "/turn-auth"
 )
 
 // TurnCredentials represents the ephemeral credentials returned by the TURN Auth API.
