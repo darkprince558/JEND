@@ -1,5 +1,9 @@
 # JEND
 
+<p align="center">
+  <img src="FullLogoLight.png" alt="JEND Logo" width="300">
+</p>
+
 JEND is a high-performance, peer-to-peer file transfer tool written in Go. It allows you to move files securely between computers—regardless of whether they are on the same WiFi or behind strict corporate firewalls—without configuring servers or opening ports.
 
 It was built to solve the fragility of existing tools (like `scp` or `rsync`) in unstable network conditions, using modern transport protocols to guarantee delivery.

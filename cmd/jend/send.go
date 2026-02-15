@@ -170,7 +170,7 @@ func startSender(filePath string, textContent string, isText bool, headless bool
 			displayName = filepath.Base(filePath)
 		}
 		model := ui.NewModel(ui.RoleSender, displayName, code)
-		p := tea.NewProgram(model)
+		p := tea.NewProgram(model, tea.WithAltScreen())
 
 		var wg sync.WaitGroup
 		wg.Add(1)

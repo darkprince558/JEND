@@ -62,9 +62,8 @@ var (
 
 	ContainerStyle = lipgloss.NewStyle().
 			Padding(2, 4).
-		// No Border
-		Width(70).
-		Align(lipgloss.Center)
+			Width(80).
+			Align(lipgloss.Center)
 
 	// Telemetry Styles
 	StatLabelStyle = lipgloss.NewStyle().

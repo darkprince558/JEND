@@ -8,9 +8,25 @@ import (
 
 // ViewCode renders the code display block
 func ViewCode(code string) string {
+	label := lipgloss.NewStyle().
+		Foreground(ColorSubtext).
+		Italic(true).
+		Render("Share this code with the receiver:")
+
+	codeBox := lipgloss.NewStyle().
+		Foreground(ColorAccent).
+		Background(ColorPanel).
+		Padding(1, 6).
+		Bold(true).
+		Align(lipgloss.Center).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorPrimary).
+		Render(code)
+
 	return lipgloss.JoinVertical(lipgloss.Center,
-		"Share this code with the receiver (copied to clipboard): ",
-		CodeStyle.Render(code),
+		label,
+		"",
+		codeBox,
 	)
 }
 

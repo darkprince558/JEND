@@ -95,6 +95,9 @@ type Model struct {
 	ConfirmResp chan bool
 	ConfirmName string
 	ConfirmSize int64
+	// Terminal size
+	Width  int
+	Height int
 }
 
 func NewModel(role Role, filename string, code string) Model {
@@ -132,6 +135,11 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.Width = msg.Width
+		m.Height = msg.Height
+		return m, nil
+
 	case tea.KeyMsg:
 		// If showing a non-fatal error or done state, allow exit or dismissal
 		if m.State == StateError && m.ErrLevel != LevelFatal {
@@ -245,26 +253,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	if m.State == StateError {
-		header := ErrorStyle.Render("ERROR")
+		icon := "✖"
+		header := ErrorStyle.Render(icon + "  ERROR")
 		msgColor := ColorError
 
 		if m.ErrLevel == LevelWarning {
-			header = WarningStyle.Render("WARNING")
+			icon = "⚠"
+			header = WarningStyle.Render(icon + "  WARNING")
 			msgColor = ColorWarning
 		} else if m.ErrLevel == LevelInfo {
-			header = InfoStyle.Render("INFO")
+			icon = "ℹ"
+			header = InfoStyle.Render(icon + "  INFO")
 			msgColor = ColorSecondary
 		}
 
 		content := lipgloss.JoinVertical(lipgloss.Center,
+			"",
 			header,
-			lipgloss.NewStyle().Foreground(msgColor).Padding(1).Render(fmt.Sprintf("%v", m.Err)),
+			"",
+			lipgloss.NewStyle().Foreground(msgColor).Padding(0, 2).Render(fmt.Sprintf("%v", m.Err)),
 		)
 
 		if m.ErrLevel != LevelFatal {
 			content = lipgloss.JoinVertical(lipgloss.Center,
 				content,
-				lipgloss.NewStyle().Faint(true).Foreground(ColorSubtext).Render("Press Enter to continue..."),
+				"",
+				lipgloss.NewStyle().Faint(true).Foreground(ColorSubtext).Render("Press Enter to continue · Esc to quit"),
 			)
 		}
 
@@ -275,8 +289,8 @@ func (m Model) View() string {
 
 	switch m.State {
 	case StateStart, StateConnecting:
-		// Clean Header
-		header := TitleStyle.Render("JEND")
+		// ASCII art banner
+		header := RenderBannerWithTagline()
 
 		info := ""
 		if m.Role == RoleSender {
@@ -294,14 +308,14 @@ func (m Model) View() string {
 
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			header,
-			"\n\n",
+			"",
 			info,
-			"\n\n",
+			"",
 			statusLine,
 		)
 
 	case StateTransferring:
-		header := TitleStyle.Render("TRANSFERRING")
+		header := SectionHeaderStyle.Render("⚡ TRANSFERRING")
 
 		// Telemetry Grid - Minimal
 		telemetry := lipgloss.JoinHorizontal(lipgloss.Top,
@@ -316,7 +330,7 @@ func (m Model) View() string {
 			),
 			lipgloss.NewStyle().Width(4).Render(""),
 			lipgloss.JoinVertical(lipgloss.Left,
-				StatLabelStyle.Render("PROTOCOL"),
+				StatLabelStyle.Render("VIA"),
 				StatValueStyle.Render(m.Protocol),
 			),
 		)
@@ -330,47 +344,50 @@ func (m Model) View() string {
 
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			header,
-			"\n\n",
+			"",
 			telemetry,
-			"\n\n",
+			"",
 			bars,
-			"\n\n",
+			"",
 			StatusStyle.Render(m.Status),
 		)
 
 	case StateConfirm:
-		header := TitleStyle.Render("INCOMING FILE")
+		header := SectionHeaderStyle.Render("📥 INCOMING FILE")
 
-		// Borderless Info Box
-		infoBox := lipgloss.NewStyle().
-			Padding(1, 0).
-			Render(
-				fmt.Sprintf("Sender wants to send:\n\n%s\n%s",
-					lipgloss.NewStyle().Bold(true).Foreground(ColorText).Render(m.ConfirmName),
-					lipgloss.NewStyle().Foreground(ColorSubtext).Render(fmt.Sprintf("%d MB", m.ConfirmSize/1024/1024)),
-				),
-			)
+		// Card-style info box
+		nameRow := lipgloss.JoinHorizontal(lipgloss.Top,
+			ConfirmLabelStyle.Render("Name"),
+			ConfirmValueStyle.Render(m.ConfirmName),
+		)
+		sizeRow := lipgloss.JoinHorizontal(lipgloss.Top,
+			ConfirmLabelStyle.Render("Size"),
+			ConfirmValueStyle.Render(FormatBytes(m.ConfirmSize)),
+		)
+		infoBox := ConfirmCardStyle.Render(
+			lipgloss.JoinVertical(lipgloss.Left, nameRow, sizeRow),
+		)
 
-		prompt := lipgloss.NewStyle().Foreground(ColorAccent).Blink(true).Render("Accept? (y/n)")
+		prompt := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render("Accept? (y/n)")
 
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			header,
-			"\n",
+			"",
 			infoBox,
-			"\n\n",
+			"",
 			prompt,
 		)
 
 	case StateDone:
-		header := TitleStyle.Render("COMPLETE")
-		check := lipgloss.NewStyle().Foreground(ColorSuccess).SetString("✔").String()
+		header := SectionHeaderStyle.Render("✔  COMPLETE")
+		check := lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true).SetString("✔").String()
 
 		var details string
 		if m.TextContent != "" {
 			// Show received text
 			textBox := lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(ColorPanel).
+				BorderForeground(ColorPrimary).
 				Padding(1, 2).
 				Width(50).
 				Foreground(ColorText).
@@ -382,7 +399,7 @@ func (m Model) View() string {
 			}
 
 			details = lipgloss.JoinVertical(lipgloss.Center,
-				check+" "+lipgloss.NewStyle().Foreground(ColorText).Render("Text received!"),
+				check+" "+lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render("Text received!"),
 				"",
 				textBox,
 				"",
@@ -390,21 +407,21 @@ func (m Model) View() string {
 			)
 		} else if m.ReceivedFile != "" {
 			details = lipgloss.JoinVertical(lipgloss.Center,
-				check+" "+lipgloss.NewStyle().Foreground(ColorText).Render("Transfer complete!"),
+				check+" "+lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render("Transfer complete!"),
 				"",
 				lipgloss.NewStyle().Foreground(ColorSubtext).Render("Saved as: ")+lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(m.ReceivedFile),
 				"",
 				lipgloss.NewStyle().Foreground(ColorSubtext).Render(FormatBytes(m.TotalBytes)+" received"),
 			)
 		} else if m.Role == RoleSender {
-			details = check + " " + lipgloss.NewStyle().Foreground(ColorText).Render("File sent successfully!")
+			details = check + " " + lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render("File sent successfully!")
 		} else {
-			details = check + " " + lipgloss.NewStyle().Foreground(ColorText).Render("All files transmitted successfully.")
+			details = check + " " + lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render("All files transmitted successfully.")
 		}
 
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			header,
-			"\n\n",
+			"",
 			details,
 		)
 	}

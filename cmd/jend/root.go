@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/darkprince558/jend/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +28,30 @@ var rootCmd = &cobra.Command{
 	Long: `JEND is a secure, direct file transfer tool.
 It allows you to send files, text, and directories directly between devices
 on the same network or over the internet using a simple code.`,
-	// No Run function as root command just holds subcommands
+	Run: func(cmd *cobra.Command, args []string) {
+		banner := ui.RenderBannerWithTagline()
+
+		versionLine := lipgloss.NewStyle().
+			Foreground(ui.ColorSubtext).
+			Align(lipgloss.Center).
+			Render(fmt.Sprintf("v%s", version))
+
+		usage := lipgloss.NewStyle().
+			Foreground(ui.ColorText).
+			Align(lipgloss.Center).
+			Render("jend send <file>     Send a file\njend receive <code>  Receive a file\njend --help          Show all commands")
+
+		output := lipgloss.JoinVertical(lipgloss.Center,
+			banner,
+			"",
+			versionLine,
+			"",
+			usage,
+			"",
+		)
+
+		fmt.Println(lipgloss.NewStyle().Padding(1, 2).Render(output))
+	},
 }
 
 var versionCmd = &cobra.Command{

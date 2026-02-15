@@ -98,7 +98,7 @@ func startReceiver(code string, headless bool, port string, outputDir string, au
 		core.RunReceiver(nil, code, port, outputDir, autoUnzip, noClipboard, noHistory, concurrency, turnCfg, autoApprove)
 	} else {
 		model := ui.NewModel(ui.RoleReceiver, "", code)
-		p := tea.NewProgram(model)
+		p := tea.NewProgram(model, tea.WithAltScreen())
 
 		// Transfer Logic
 		go func() {
