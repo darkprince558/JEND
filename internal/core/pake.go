@@ -1,3 +1,5 @@
+// Package core implements the main business logic of JEND, including the Sender and Receiver state machines,
+// PAKE authentication, and secure stream management.
 package core
 
 import (

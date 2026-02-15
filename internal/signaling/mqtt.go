@@ -65,7 +65,10 @@ func NewIoTClient(ctx context.Context, clientID string) (*IoTClient, error) {
 		// 2. Sign the Websocket URL
 		// AWS IoT Core supports WSS on port 443 with SigV4
 		signer := v4.NewSigner()
-		req, _ = http.NewRequest("GET", fmt.Sprintf("wss://%s/mqtt", iotEndpoint), nil)
+		req, err = http.NewRequest("GET", fmt.Sprintf("wss://%s/mqtt", iotEndpoint), nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create mqtt request: %w", err)
+		}
 
 		// Sign the request
 		// We need to sign with service "iotdevicegateway"

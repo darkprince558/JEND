@@ -1,3 +1,5 @@
+// Package transport handles the low-level networking, including QUIC listener setup,
+// TLS certificate generation for QUIC, and abstracting connection details.
 package transport
 
 import (

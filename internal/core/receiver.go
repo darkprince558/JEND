@@ -31,6 +31,12 @@ import (
 )
 
 // RunReceiver handles the main receiving logic
+// RunReceiver starts the receiver process. It handles:
+// 1. Discovery (mDNS, Cloud, P2P)
+// 2. PAKE Authentication (Zero-Knowledge)
+// 3. Secure Stream Upgrade (AES-256-GCM)
+// 4. File Download (Sequential or Parallel)
+// 5. Checksum Verification
 func RunReceiver(p *tea.Program, code string, port string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig, autoApprove bool) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
@@ -40,7 +46,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 			case ui.DetailedErrorMsg:
 				fmt.Printf("Error (%v): %v\n", m.Level, m.Err)
 				if m.Level == ui.LevelFatal {
-					// os.Exit(1) handled in defer
+					return
 				}
 			case ui.ErrorMsg:
 				fmt.Println("Error:", m)
@@ -123,7 +129,9 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 			// Check for S3 Metadata via PublicKey
 			var meta map[string]string
 			if len(item.PublicKey) > 0 {
-				_ = json.Unmarshal(item.PublicKey, &meta)
+				if err := json.Unmarshal(item.PublicKey, &meta); err != nil {
+					sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to parse S3 metadata: %v", err)))
+				}
 			}
 
 			if meta != nil && meta["type"] == "s3" {
@@ -561,8 +569,8 @@ func handleReceiveSession(
 
 				target := filepath.Join(outputDir, header.Name)
 				if !strings.HasPrefix(target, filepath.Clean(outputDir)+string(os.PathSeparator)) {
-					// log.Println("zip slip attempt detected")
-					continue
+					sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("zip slip attempt detected: %s", target), Level: ui.LevelError})
+					return true, fileSize, fileHash, fmt.Errorf("zip slip attempt detected: %s", target)
 				}
 
 				if header.Typeflag == tar.TypeDir {

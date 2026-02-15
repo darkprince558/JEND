@@ -30,7 +30,11 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// RunSender handles the main sending logic
+// RunSender starts the sender process. It handles:
+// 1. Signaling (MQTT)
+// 2. Accepting Connections (P2P/Direct)
+// 3. PAKE Authentication
+// 4. Secure File Transfer (Zipping/Tarring if needed)
 func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, textContent string, isText bool, code string, port string, timeout time.Duration, forceTar, forceZip bool, noHistory bool, turnCfg *transport.CustomTurnConfig, useS3 bool) {
 	startTime := time.Now()
 	var finalErr error
@@ -208,7 +212,12 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 				fileObj.Close()
 				os.Remove(tempPath)
 			}
-			info, _ = fileObj.Stat()
+			info, err = fileObj.Stat()
+			if err != nil {
+				finalErr = err
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to stat file: %w", err), Level: ui.LevelFatal})
+				return
+			}
 		} else if forceZip {
 			sendMsg(ui.StatusMsg("Compressing to .zip..."))
 			tempPath, err := CompressPath(filePath, "zip")
@@ -229,7 +238,12 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 				fileObj.Close()
 				os.Remove(tempPath)
 			}
-			info, _ = fileObj.Stat()
+			info, err = fileObj.Stat()
+			if err != nil {
+				finalErr = err
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to stat file: %w", err), Level: ui.LevelFatal})
+				return
+			}
 		} else {
 			// Normal File
 			fileObj, err = os.Open(filePath)

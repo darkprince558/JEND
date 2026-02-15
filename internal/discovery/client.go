@@ -1,3 +1,5 @@
+// Package discovery handles peer discovery mechanisms including mDNS (local)
+// and the Cloud Registry (global).
 package discovery
 
 import (

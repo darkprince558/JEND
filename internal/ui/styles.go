@@ -66,7 +66,6 @@ var (
 		Width(70).
 		Align(lipgloss.Center)
 
-	// Deprecated/Reused
 	MatrixHeaderStyle = TitleStyle.Copy()
 	MatrixTextStyle   = SubTextStyle.Copy()
 
