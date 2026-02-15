@@ -116,6 +116,10 @@ jend send --headless --no-history --timeout 5m build_artifacts.tar.gz
 
 For 10Gbps+ links, you can manually tune the concurrency:
 
+```bash
+jend receive --concurrency 16
+```
+
 ## Command Reference
 
 ### `jend send`

@@ -66,9 +66,6 @@ var (
 		Width(70).
 		Align(lipgloss.Center)
 
-	MatrixHeaderStyle = TitleStyle.Copy()
-	MatrixTextStyle   = SubTextStyle.Copy()
-
 	// Telemetry Styles
 	StatLabelStyle = lipgloss.NewStyle().
 			Foreground(ColorSubtext).
