@@ -94,8 +94,14 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (n
 			msg.Type = signaling.TypeAnswer
 		}
 
-		payload, _ := json.Marshal(msg)
-		m.Signaling.Publish(topic, payload)
+		payload, err := json.Marshal(msg)
+		if err != nil {
+			fmt.Printf("Failed to marshal candidate: %v\n", err)
+			return
+		}
+		if err := m.Signaling.Publish(topic, payload); err != nil {
+			fmt.Printf("Failed to publish candidate: %v\n", err)
+		}
 	})
 
 	if err := agent.GatherCandidates(); err != nil {
