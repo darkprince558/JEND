@@ -1,88 +1,88 @@
 package discovery
 
 import (
-	"context"
-	"crypto/sha256"
-	"fmt"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
-	"time"
-
-	"github.com/grandcat/zeroconf"
 )
 
-func TestHashComputation(t *testing.T) {
-	code := "test-code-123"
-	expectedSum := sha256.Sum256([]byte(code))
-	expected := fmt.Sprintf("%x", expectedSum)
-
-	result := ComputeHash(code)
-	if result != expected {
-		t.Errorf("ComputeHash(%q) = %q, want %q", code, result, expected)
+func TestLookupCloud(t *testing.T) {
+	// 1. Mock Server
+	mockItem := RegistryItem{
+		Code: "test-code-123",
+		IP:   "192.168.1.100",
+		Port: 9000,
 	}
-}
 
-func TestAdvertiseAndBrowse(t *testing.T) {
-	// This test integrates both Advertise and Browse on the loopback interface.
-	// Note: mDNS tests can be flaky in some CI/container environments that don't support multicast.
-	// We will try our best to run it locally.
-
-	port := 9999 // Arbitrary test port
-	code := "unit-test-code-discovery"
-
-	// 1. Start Advertising
-	stop, err := StartAdvertising(port, code)
-	if err != nil {
-		t.Fatalf("Failed to start advertising: %v", err)
-	}
-	defer stop()
-
-	// Give a moment for the service to register
-	time.Sleep(500 * time.Millisecond)
-
-	// 2. Try to Find it
-	// Reduce timeout for test speed
-	foundAddr, err := FindSender(code, 2*time.Second)
-	if err != nil {
-		// Diagnostic: check if we can find ANY jend service
-		resolver, _ := zeroconf.NewResolver(nil)
-		entries := make(chan *zeroconf.ServiceEntry)
-		go func() {
-			resolver.Browse(context.Background(), ServiceType, "local.", entries)
-		}()
-		select {
-		case e := <-entries:
-			t.Logf("Found unrelated service: %s %v", e.Instance, e.Text)
-		case <-time.After(1 * time.Second):
-			t.Log("No services found at all")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/lookup/test-code-123" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(mockItem)
+			return
 		}
+		if r.URL.Path == "/lookup/missing" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
 
-		t.Fatalf("FindSender failed: %v", err)
+	// 2. Client with Mock Endpoint
+	client := NewRegistryClient()
+	client.Endpoint = server.URL
+
+	// 3. Test Success
+	item, err := client.Lookup("test-code-123")
+	if err != nil {
+		t.Fatalf("Expected success, got error: %v", err)
+	}
+	if item.IP != mockItem.IP {
+		t.Errorf("Expected IP %s, got %s", mockItem.IP, item.IP)
 	}
 
-	// 3. Verify
-	// IP might vary (IPv4 vs IPv6), but port should match
-	// Format is ip:port
-	// We expect port 9999
-	expectedSuffix := fmt.Sprintf(":%d", port)
-	if len(foundAddr) <= len(expectedSuffix) || foundAddr[len(foundAddr)-len(expectedSuffix):] != expectedSuffix {
-		t.Errorf("Found address %q, expected port %d", foundAddr, port)
+	// 4. Test Not Found
+	_, err = client.Lookup("missing")
+	if err == nil {
+		t.Error("Expected error for missing code, got nil")
 	}
 }
 
-func TestBrowseNotFound(t *testing.T) {
-	// Search for a code that definitely doesn't exist
-	code := "non-existent-ghost-code"
+func TestRegisterCloud(t *testing.T) {
+	// 1. Mock Server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/register" && r.Method == "POST" {
+			var item RegistryItem
+			if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if item.Code == "bad-code" {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("database error"))
+				return
+			}
+			w.WriteHeader(http.StatusOK) // or Created
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
 
-	// Should timeout
-	start := time.Now()
-	_, err := FindSender(code, 500*time.Millisecond)
-	duration := time.Since(start)
+	// 2. Client
+	client := NewRegistryClient()
+	client.Endpoint = server.URL
 
-	if err == nil {
-		t.Error("Expected error (timeout), got success")
+	// 3. Test Success
+	err := client.Register("good-code", "1.2.3.4", 8080, nil)
+	if err != nil {
+		t.Errorf("Expected success, got error: %v", err)
 	}
 
-	if duration < 500*time.Millisecond {
-		t.Error("Returned too early, didn't wait for timeout")
+	// 4. Test Failure
+	err = client.Register("bad-code", "1.2.3.4", 8080, nil)
+	if err == nil {
+		t.Error("Expected error for bad code, got nil")
 	}
 }

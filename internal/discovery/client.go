@@ -19,7 +19,8 @@ const (
 
 // RegistryClient handles interaction with the global JEND Registry Service.
 type RegistryClient struct {
-	client *http.Client
+	client   *http.Client
+	Endpoint string
 }
 
 // NewRegistryClient creates a new client with a default timeout.
@@ -28,6 +29,7 @@ func NewRegistryClient() *RegistryClient {
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		Endpoint: config.DefaultAPIEndpoint,
 	}
 }
 
@@ -54,7 +56,7 @@ func (c *RegistryClient) Register(code, ip string, port int, pubKey []byte) erro
 		return fmt.Errorf("marshal failed: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/register", apiEndpoint)
+	url := fmt.Sprintf("%s/register", c.Endpoint)
 	resp, err := c.client.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("register request failed: %w", err)
@@ -71,7 +73,7 @@ func (c *RegistryClient) Register(code, ip string, port int, pubKey []byte) erro
 
 // Lookup sends a GET request to find a peer by code.
 func (c *RegistryClient) Lookup(code string) (*RegistryItem, error) {
-	url := fmt.Sprintf("%s/lookup/%s", apiEndpoint, code)
+	url := fmt.Sprintf("%s/lookup/%s", c.Endpoint, code)
 	resp, err := c.client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("lookup request failed: %w", err)

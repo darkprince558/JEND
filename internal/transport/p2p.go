@@ -11,16 +11,24 @@ import (
 	"github.com/pion/ice/v2"
 )
 
+// Signaler abstracts the signaling channel (MQTT)
+type Signaler interface {
+	Subscribe(topic string, handler mqtt.MessageHandler) error
+	Publish(topic string, payload []byte) error
+}
+
+var NewAgentFunc = NewICEAgent
+
 // P2PManager handles the establishment of a P2P connection via ICE & MQTT
 type P2PManager struct {
-	Signaling  *signaling.IoTClient
+	Signaling  Signaler
 	Code       string
 	Agent      *ice.Agent
 	TurnConfig *CustomTurnConfig
 }
 
 // NewP2PManager creates a manager for a specific transfer session
-func NewP2PManager(sig *signaling.IoTClient, code string, turnCfg *CustomTurnConfig) *P2PManager {
+func NewP2PManager(sig Signaler, code string, turnCfg *CustomTurnConfig) *P2PManager {
 	return &P2PManager{
 		Signaling:  sig,
 		Code:       code,
@@ -32,7 +40,7 @@ func NewP2PManager(sig *signaling.IoTClient, code string, turnCfg *CustomTurnCon
 // It acts as the Offerer if isOfferer is true (Receiver role), otherwise as Answerer (Sender role).
 func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (net.PacketConn, error) {
 	// 1. Create ICE Agent
-	agent, err := NewICEAgent(ctx, isOfferer, m.TurnConfig)
+	agent, err := NewAgentFunc(ctx, isOfferer, m.TurnConfig)
 	if err != nil {
 		return nil, err
 	}
