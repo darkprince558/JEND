@@ -459,13 +459,15 @@ func handleReceiveSession(
 				}
 			}
 
-			sendMsg(ui.ProgressMsg{
-				SentBytes:  totalRecv,
-				TotalBytes: meta.Size,
-				Speed:      speed,
-				ETA:        eta,
-				Protocol:   "QUIC (Direct)",
-			})
+			if totalRecv < meta.Size {
+				sendMsg(ui.ProgressMsg{
+					SentBytes:  totalRecv,
+					TotalBytes: meta.Size,
+					Speed:      speed,
+					ETA:        eta,
+					Protocol:   "QUIC (Direct)",
+				})
+			}
 		}
 	}
 
