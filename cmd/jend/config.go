@@ -38,7 +38,7 @@ var configSetRelayCmd = &cobra.Command{
 			fmt.Printf("Error saving config: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("✅ Configuration updated!")
+		fmt.Println("Configuration updated.")
 		fmt.Printf("   Relay URL:  %s\n", cfg.RelayURL)
 		fmt.Printf("   Relay User: %s\n", cfg.RelayUser)
 	},

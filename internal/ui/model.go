@@ -480,7 +480,7 @@ func (m Model) View() string {
 
 			clipLine := ""
 			if m.ClipboardOk {
-				clipLine = lipgloss.NewStyle().Foreground(ColorSecondary).Align(lipgloss.Center).Render("✓ copied to clipboard")
+				clipLine = lipgloss.NewStyle().Foreground(ColorSecondary).Align(lipgloss.Center).Render("Copied to clipboard")
 			}
 
 			content = lipgloss.JoinVertical(lipgloss.Center,

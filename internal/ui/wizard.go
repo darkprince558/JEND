@@ -323,16 +323,14 @@ func (m SendWizardModel) viewStepSource() string {
 	s.WriteString("\n\n")
 
 	for i, opt := range m.sourceOptions {
-		cursor := "  "
 		style := RadioInactiveStyle
-		indicator := "○"
+		prefix := "  "
 		if i == m.cursor {
-			cursor = ""
 			style = RadioActiveStyle
-			indicator = "●"
+			prefix = "> "
 		}
 
-		line := fmt.Sprintf("%s %s %s  %s", cursor, indicator, opt.icon, opt.label)
+		line := fmt.Sprintf("%s%s  %s", prefix, opt.icon, opt.label)
 		s.WriteString(style.Render(line))
 		s.WriteString("\n")
 
@@ -341,7 +339,7 @@ func (m SendWizardModel) viewStepSource() string {
 			desc := lipgloss.NewStyle().
 				Foreground(ColorSubtext).
 				Faint(true).
-				PaddingLeft(7).
+				PaddingLeft(6).
 				Render(opt.desc)
 			s.WriteString(desc)
 			s.WriteString("\n")
@@ -426,7 +424,7 @@ func (m SendWizardModel) viewStepOptions() string {
 func (m SendWizardModel) viewStepConfirm() string {
 	var s strings.Builder
 
-	header := WizardHeaderStyle.Render("✅ Ready to send!")
+	header := WizardHeaderStyle.Render("Ready to send")
 	s.WriteString(header)
 	s.WriteString("\n")
 
@@ -490,25 +488,25 @@ func (m SendWizardModel) viewStepConfirm() string {
 func (m SendWizardModel) renderRadio(label, desc string, focused, selected bool) string {
 	var s strings.Builder
 
-	indicator := "○"
+	indicator := "( )"
 	style := RadioInactiveStyle
-	cursor := "  "
+	prefix := "  "
 	if selected {
-		indicator = "●"
+		indicator = "(*)"
 	}
 	if focused {
 		style = RadioActiveStyle
-		cursor = ""
+		prefix = "> "
 	}
 
-	s.WriteString(style.Render(fmt.Sprintf("%s %s  %s", cursor, indicator, label)))
+	s.WriteString(style.Render(fmt.Sprintf("%s%s  %s", prefix, indicator, label)))
 	s.WriteString("\n")
 
 	if focused {
 		descStyle := lipgloss.NewStyle().
 			Foreground(ColorSubtext).
 			Faint(true).
-			PaddingLeft(7)
+			PaddingLeft(8)
 		s.WriteString(descStyle.Render(desc))
 		s.WriteString("\n")
 	}
@@ -517,19 +515,19 @@ func (m SendWizardModel) renderRadio(label, desc string, focused, selected bool)
 }
 
 func (m SendWizardModel) renderToggle(label string, focused, on bool) string {
-	cursor := "  "
+	prefix := "  "
 	style := ToggleOffStyle
-	toggle := "☐"
+	toggle := "[ ]"
 	if on {
-		toggle = "☑"
+		toggle = "[x]"
 		style = ToggleOnStyle
 	}
 	if focused {
 		style = RadioActiveStyle
-		cursor = ""
+		prefix = "> "
 	}
 
-	return style.Render(fmt.Sprintf("%s %s  %s", cursor, toggle, label)) + "\n"
+	return style.Render(fmt.Sprintf("%s%s  %s", prefix, toggle, label)) + "\n"
 }
 
 func (m SendWizardModel) confirmRow(label, value string) string {
