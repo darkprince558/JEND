@@ -178,6 +178,11 @@ func (m SendWizardModel) updateStepSource(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.textArea.Focus()
 			return m, textarea.Blink
 		}
+	case tea.KeyRight:
+		if m.result.IsText || m.filePath != "" {
+			m.step = WizardStepOptions
+			return m, nil
+		}
 	}
 	return m, nil
 }
@@ -226,14 +231,12 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		if m.optCursor < totalItems-1 {
 			m.optCursor++
 		}
-	case tea.KeyEsc:
-		// Go back to step 1
+	case tea.KeyEsc, tea.KeyLeft:
+		// Go back to step 1 (Non-destructive)
 		m.step = WizardStepSource
+		// We preserve m.filePath, m.fileName, m.result.IsText etc.
+		// They are only reset if the user explicitly changes selection in Step 1.
 		m.cursor = m.sourceChoice
-		m.filePath = ""
-		m.fileName = ""
-		m.textArea.Reset()
-		m.result.IsText = false
 		return m, nil
 	case tea.KeyEnter, tea.KeySpace:
 		switch m.optCursor {
@@ -268,7 +271,7 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 				m.incognito = false
 			}
 		}
-	case tea.KeyTab:
+	case tea.KeyTab, tea.KeyRight:
 		// Tab advances to confirm step
 		m.result.UseS3 = (m.modeChoice == 1)
 		m.result.ForceZip = m.forceZip
@@ -287,7 +290,7 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 
 func (m SendWizardModel) updateStepConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
-	case tea.KeyEsc:
+	case tea.KeyEsc, tea.KeyLeft:
 		m.step = WizardStepOptions
 		m.optCursor = 0
 		return m, nil
@@ -338,7 +341,6 @@ func (m SendWizardModel) View() string {
 	// Use Place with Top alignment to prevent vertical bouncing
 	fullView := lipgloss.JoinVertical(lipgloss.Left,
 		RenderBanner(),
-		"\n",
 		body,
 	)
 
@@ -350,7 +352,7 @@ func (m SendWizardModel) viewStepSource() string {
 
 	header := WizardHeaderStyle.Render("What do you want to send?")
 	s.WriteString(header)
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	for i, opt := range m.sourceOptions {
 		style := RadioInactiveStyle
@@ -374,10 +376,10 @@ func (m SendWizardModel) viewStepSource() string {
 		}
 
 		s.WriteString(line)
-		s.WriteString("\n\n")
+		s.WriteString("\n")
 	}
 
-	help := WizardHelpStyle.Render("↑↓ navigate · enter select · esc quit")
+	help := WizardHelpStyle.Render("arrows navigate · enter select · esc quit")
 	s.WriteString(help)
 
 	return s.String()
@@ -388,9 +390,17 @@ func (m SendWizardModel) viewTextInput() string {
 
 	header := WizardHeaderStyle.Render("Type your text")
 	s.WriteString(header)
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	s.WriteString(m.textArea.View())
+	s.WriteString("\n")
+
+	// Stats
+	val := m.textArea.Value()
+	line := m.textArea.Line() + 1
+	stats := fmt.Sprintf("Ln %d   %d chars", line, len(val))
+	statsStyle := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true)
+	s.WriteString(statsStyle.Render(stats))
 	s.WriteString("\n\n")
 
 	help := WizardHelpStyle.Render("tab submit · esc back")
@@ -412,7 +422,7 @@ func (m SendWizardModel) viewStepOptions() string {
 		s.WriteString(header)
 	}
 
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	sectionStyle := lipgloss.NewStyle().
 		Foreground(ColorText).
@@ -446,7 +456,8 @@ func (m SendWizardModel) viewStepOptions() string {
 	s.WriteString(m.renderToggle("No history  ", "Skip audit log", m.optCursor == 6, m.noHistory))
 
 	s.WriteString("\n")
-	help := WizardHelpStyle.Render("up/down navigate  |  enter toggle  |  tab continue  |  esc back")
+	s.WriteString("\n")
+	help := WizardHelpStyle.Render("arrows navigate · enter toggle · esc back")
 	s.WriteString(help)
 
 	return s.String()
@@ -457,7 +468,7 @@ func (m SendWizardModel) viewStepConfirm() string {
 
 	header := WizardHeaderStyle.Render("Ready to send")
 	s.WriteString(header)
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	sectionStyle := lipgloss.NewStyle().
 		Foreground(ColorText).
@@ -481,7 +492,7 @@ func (m SendWizardModel) viewStepConfirm() string {
 	} else {
 		s.WriteString(valueStyle.Render(fmt.Sprintf("%s (%s)", m.fileName, FormatBytes(m.fileSize))))
 	}
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	// -- Transfer Mode --
 	s.WriteString(sectionStyle.Render("Mode"))
@@ -492,7 +503,7 @@ func (m SendWizardModel) viewStepConfirm() string {
 		mode = "Cloud (S3)"
 	}
 	s.WriteString(valueStyle.Render(mode))
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	// -- Options --
 	var opts []string
@@ -543,7 +554,7 @@ func (m SendWizardModel) viewStepConfirm() string {
 	s.WriteString(btnStyle.Render("Enter to Start"))
 	s.WriteString("\n\n")
 
-	help := WizardHelpStyle.Render("esc back")
+	help := WizardHelpStyle.Render("enter start · esc back")
 	s.WriteString(help)
 
 	return s.String()

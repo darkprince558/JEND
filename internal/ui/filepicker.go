@@ -296,7 +296,6 @@ func (m FilePickerModel) View() string {
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		breadcrumb,
-		"",
 		mainContent,
 	)
 
@@ -306,7 +305,6 @@ func (m FilePickerModel) View() string {
 	// Pin banner to top
 	fullView := lipgloss.JoinVertical(lipgloss.Left,
 		banner,
-		"\n",
 		body,
 	)
 
