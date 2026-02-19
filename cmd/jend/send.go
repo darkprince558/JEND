@@ -78,8 +78,15 @@ Example:
 			isText = wizResult.IsText
 			useS3 = wizResult.UseS3
 			forceZip = wizResult.ForceZip
+			forceTar = wizResult.ForceTar
 			if wizResult.Incognito {
 				sendIncognito = true
+			}
+			if wizResult.NoClipboard {
+				sendNoClipboard = true
+			}
+			if wizResult.NoHistory {
+				sendNoHistory = true
 			}
 		}
 
