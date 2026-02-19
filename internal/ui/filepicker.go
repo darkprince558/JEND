@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -25,6 +26,8 @@ type FilePickerModel struct {
 	// Terminal size
 	width  int
 	height int
+	// Status
+	statusMessage string
 }
 
 // NewFilePickerModel creates a file picker starting in the current directory.
@@ -91,7 +94,40 @@ func (m FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.filepicker.Height = fpHeight
 		return m, nil
 
+	case tea.MouseMsg:
+		// Ignoring mouse for now to prevent accidental clicks
+		return m, nil
+
 	case tea.KeyMsg:
+		// Drag & Drop / Paste Detection
+		// If we receive a long string (paste) or it looks like an absolute path
+		input := msg.String()
+		if len(input) > 2 && (strings.HasPrefix(input, "/") || (len(input) > 3 && input[1] == ':')) {
+			// Clean path (trim quotes if terminal adds them)
+			cleanPath := strings.Trim(input, "\"' ")
+			info, err := os.Stat(cleanPath)
+			if err == nil {
+				// It is a valid path!
+				dir := cleanPath
+				if !info.IsDir() {
+					dir = filepath.Dir(cleanPath)
+					// Optional: Pre-select the file?
+					// Bubbles filepicker doesn't let us easily "select" a file without it being in the list and matching index.
+					// For now, just going to the dir is enough as per request.
+				}
+				m.filepicker.CurrentDirectory = dir
+				m.statusMessage = fmt.Sprintf("File dropped: %s", filepath.Base(cleanPath))
+				// Reset search if active
+				m.searching = false
+				m.searchInput.Blur()
+				m.searchInput.SetValue("")
+				m.searchErr = ""
+
+				// Refresh picker
+				return m, m.filepicker.Init()
+			}
+		}
+
 		// Handle search mode
 		if m.searching {
 			switch msg.Type {
@@ -214,6 +250,16 @@ func (m FilePickerModel) View() string {
 	header := SectionHeaderStyle.Render(">> SELECT FILE <<")
 	if m.directoryMode {
 		header = SectionHeaderStyle.Render(">> SELECT FOLDER <<")
+	}
+
+	// Status Message (Drag & Drop)
+	if m.statusMessage != "" {
+		status := lipgloss.NewStyle().
+			Foreground(ColorSubtext).
+			Faint(true).
+			Italic(true).
+			Render(m.statusMessage)
+		header = lipgloss.JoinHorizontal(lipgloss.Left, header, "   ", status)
 	}
 
 	// Breadcrumb
