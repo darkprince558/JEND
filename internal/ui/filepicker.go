@@ -211,9 +211,9 @@ func (m FilePickerModel) View() string {
 	}
 
 	banner := RenderBanner()
-	header := SectionHeaderStyle.Render("SELECT FILE")
+	header := SectionHeaderStyle.Render(">> SELECT FILE <<")
 	if m.directoryMode {
-		header = SectionHeaderStyle.Render("SELECT FOLDER")
+		header = SectionHeaderStyle.Render(">> SELECT FOLDER <<")
 	}
 
 	// Breadcrumb

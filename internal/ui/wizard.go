@@ -41,12 +41,22 @@ type sourceOption struct {
 	desc  string
 }
 
+// wizardHistoryItem stores editor state for undo/redo
+type wizardHistoryItem struct {
+	text   string
+	cursor int
+}
+
 // SendWizardModel is the main wizard Bubble Tea model
 type SendWizardModel struct {
 	step     WizardStep
 	cursor   int
 	quitting bool
 	result   WizardResult
+
+	// Editor history
+	history      []wizardHistoryItem
+	historyIndex int
 
 	// Step 1: Source type
 	sourceOptions []sourceOption
@@ -94,13 +104,15 @@ func NewSendWizardModel() SendWizardModel {
 	return SendWizardModel{
 		step: WizardStepSource,
 		sourceOptions: []sourceOption{
+			{label: "Text Snippet", icon: ">", desc: "Type or paste text to send"},
 			{label: "File", icon: ">", desc: "Browse and select a single file"},
 			{label: "Folder", icon: ">", desc: "Select a directory to send (auto-zipped)"},
-			{label: "Text Snippet", icon: ">", desc: "Type or paste text to send"},
 		},
 		sourceChoice: 0,
 		modeChoice:   0,
 		textArea:     ta,
+		history:      []wizardHistoryItem{{text: "", cursor: 0}}, // Initial state
+		historyIndex: 0,
 	}
 }
 
@@ -167,16 +179,15 @@ func (m SendWizardModel) updateStepSource(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case tea.KeyEnter:
 		m.sourceChoice = m.cursor
-		if m.cursor == 0 || m.cursor == 1 {
-			// File (0) or Folder (1) picker — we need to exit TUI, launch picker, and come back
-			// Use a message to signal this
-			return m, tea.Quit // Will be handled by RunSendWizard
-		} else if m.cursor == 2 {
-			// Text input
+		if m.cursor == 0 {
+			// Text input (now first option)
 			m.textEditing = true
 			m.textArea.Reset()
 			m.textArea.Focus()
 			return m, textarea.Blink
+		} else if m.cursor == 1 || m.cursor == 2 {
+			// File (1) or Folder (2) picker
+			return m, tea.Quit // Will be handled by RunSendWizard
 		}
 	case tea.KeyRight:
 		if m.result.IsText || m.filePath != "" {
@@ -211,9 +222,52 @@ func (m SendWizardModel) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Undo
+	if msg.Type == tea.KeyCtrlZ {
+		if m.historyIndex > 0 {
+			m.historyIndex--
+			state := m.history[m.historyIndex]
+			m.textArea.SetValue(state.text)
+			m.textArea.SetCursor(state.cursor)
+		}
+		return m, nil
+	}
+
+	// Redo (Ctrl+Y or Ctrl+Shift+Z often map here or conflict, sticking to Ctrl+Y as standard TUI redo)
+	// Some terminals map Ctrl+Shift+Z to \x1a (same as Ctrl+Z), so reliable "Shift" detection is hard.
+	// We'll support Ctrl+Y for Redo.
+	if msg.Type == tea.KeyCtrlY {
+		if m.historyIndex < len(m.history)-1 {
+			m.historyIndex++
+			state := m.history[m.historyIndex]
+			m.textArea.SetValue(state.text)
+			m.textArea.SetCursor(state.cursor)
+		}
+		return m, nil
+	}
+
+	// Capture state before update to compare
+	oldVal := m.textArea.Value()
+
 	// Forward to textarea
 	var cmd tea.Cmd
 	m.textArea, cmd = m.textArea.Update(msg)
+
+	// If changed, push history
+	newVal := m.textArea.Value()
+	if newVal != oldVal {
+		// Truncate redo history
+		if m.historyIndex < len(m.history)-1 {
+			m.history = m.history[:m.historyIndex+1]
+		}
+		// Append new state
+		// Note: We use len(newVal) for cursor defaults as we can't easily get cursor index
+		// from m.textArea.Cursor field in this version without potential reflection or digging.
+		// This suffices for basic undo (cursor moves to end).
+		m.history = append(m.history, wizardHistoryItem{text: newVal, cursor: len(newVal)})
+		m.historyIndex++
+	}
+
 	return m, cmd
 }
 
@@ -350,15 +404,25 @@ func (m SendWizardModel) View() string {
 func (m SendWizardModel) viewStepSource() string {
 	var s strings.Builder
 
-	header := WizardHeaderStyle.Render("What do you want to send?")
+	header := WizardHeaderStyle.Render(">> What do you want to send? <<")
 	s.WriteString(header)
 	s.WriteString("\n")
 
+	// Calculate max length for alignment
+	maxLen := 0
+	for _, opt := range m.sourceOptions {
+		// prefix (2) + icon (1) + spacing (2) + label len
+		l := 5 + len(opt.label)
+		if l > maxLen {
+			maxLen = l
+		}
+	}
+
 	for i, opt := range m.sourceOptions {
-		style := RadioInactiveStyle
+		style := lipgloss.NewStyle().Foreground(ColorText).Width(maxLen)
 		prefix := "  "
 		if i == m.cursor {
-			style = RadioActiveStyle
+			style = RadioActiveStyle.Copy().Width(maxLen)
 			prefix = "> "
 		}
 
@@ -388,20 +452,31 @@ func (m SendWizardModel) viewStepSource() string {
 func (m SendWizardModel) viewTextInput() string {
 	var s strings.Builder
 
-	header := WizardHeaderStyle.Render("Type your text")
+	header := WizardHeaderStyle.Render(">> Type your text <<")
 	s.WriteString(header)
 	s.WriteString("\n")
 
 	s.WriteString(m.textArea.View())
 	s.WriteString("\n")
 
-	// Stats
+	// Stats & Hint
 	val := m.textArea.Value()
 	line := m.textArea.Line() + 1
 	stats := fmt.Sprintf("Ln %d   %d chars", line, len(val))
 	statsStyle := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true)
-	s.WriteString(statsStyle.Render(stats))
-	s.WriteString("\n\n")
+
+	hint := "(up ↑ down ↓)"
+	hintStyle := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true)
+
+	// Combine stats (left) and hint (right) - width approx 50
+	// textArea width is 50 content + 2 padding + 2 border = 54 total visual width
+	footer := lipgloss.JoinHorizontal(lipgloss.Top,
+		statsStyle.Render(stats),
+		lipgloss.NewStyle().Width(54-lipgloss.Width(stats)).Align(lipgloss.Right).Render(hintStyle.Render(hint)),
+	)
+
+	s.WriteString(footer)
+	s.WriteString("\n")
 
 	help := WizardHelpStyle.Render("tab submit · esc back")
 	s.WriteString(help)
@@ -414,11 +489,11 @@ func (m SendWizardModel) viewStepOptions() string {
 
 	// File info header
 	if m.result.IsText {
-		header := WizardHeaderStyle.Render("Sending text snippet")
+		header := WizardHeaderStyle.Render(">> Sending text snippet <<")
 		s.WriteString(header)
 	} else {
 		sizeStr := FormatBytes(m.fileSize)
-		header := WizardHeaderStyle.Render(fmt.Sprintf("%s (%s)", m.fileName, sizeStr))
+		header := WizardHeaderStyle.Render(fmt.Sprintf(">> %s (%s) <<", m.fileName, sizeStr))
 		s.WriteString(header)
 	}
 
@@ -427,7 +502,8 @@ func (m SendWizardModel) viewStepOptions() string {
 	sectionStyle := lipgloss.NewStyle().
 		Foreground(ColorText).
 		Bold(true).
-		MarginBottom(1)
+		MarginBottom(1).
+		Align(lipgloss.Left)
 
 	// -- Transfer Mode --
 	s.WriteString(sectionStyle.Render("Transfer Mode"))
@@ -456,7 +532,6 @@ func (m SendWizardModel) viewStepOptions() string {
 	s.WriteString(m.renderToggle("No history  ", "Skip audit log", m.optCursor == 6, m.noHistory))
 
 	s.WriteString("\n")
-	s.WriteString("\n")
 	help := WizardHelpStyle.Render("arrows navigate · enter toggle · esc back")
 	s.WriteString(help)
 
@@ -466,18 +541,21 @@ func (m SendWizardModel) viewStepOptions() string {
 func (m SendWizardModel) viewStepConfirm() string {
 	var s strings.Builder
 
-	header := WizardHeaderStyle.Render("Ready to send")
+	header := WizardHeaderStyle.Render(">> Ready to send <<")
 	s.WriteString(header)
 	s.WriteString("\n")
 
 	sectionStyle := lipgloss.NewStyle().
 		Foreground(ColorText).
 		Bold(true).
-		MarginBottom(0) // Tighter
+		MarginBottom(1).
+		Align(lipgloss.Left)
 
 	valueStyle := lipgloss.NewStyle().
 		Foreground(ColorSubtext).
-		PaddingLeft(2)
+		Background(ColorPanel).
+		Padding(0, 1).
+		MarginLeft(2)
 
 	// -- Source --
 	s.WriteString(sectionStyle.Render("Source"))
@@ -492,7 +570,7 @@ func (m SendWizardModel) viewStepConfirm() string {
 	} else {
 		s.WriteString(valueStyle.Render(fmt.Sprintf("%s (%s)", m.fileName, FormatBytes(m.fileSize))))
 	}
-	s.WriteString("\n")
+	s.WriteString("\n\n")
 
 	// -- Transfer Mode --
 	s.WriteString(sectionStyle.Render("Mode"))
@@ -503,7 +581,7 @@ func (m SendWizardModel) viewStepConfirm() string {
 		mode = "Cloud (S3)"
 	}
 	s.WriteString(valueStyle.Render(mode))
-	s.WriteString("\n")
+	s.WriteString("\n\n")
 
 	// -- Options --
 	var opts []string
@@ -534,25 +612,16 @@ func (m SendWizardModel) viewStepConfirm() string {
 		s.WriteString("\n")
 	}
 
-	// Start button (keep it distinct but maybe less "button-y" if we want pure clean text?
-	// The user said "vibe of the option menu", which doesn't have a button.
-	// But we need a call to action.
-	// Let's keep the button but make it aligned left?
-	// Or maybe just a prompt?)
-
-	// The previous button was centered.
-	// Let's make it a left-aligned prompt to match the vibe.
-	// Or a simple outlined button.
-
+	// Start button
 	btnStyle := lipgloss.NewStyle().
 		Foreground(ColorBg).
 		Background(ColorSecondary).
 		Bold(true).
-		Padding(0, 2).
-		MarginTop(1)
+		Padding(0, 2)
 
+	s.WriteString("\n")
 	s.WriteString(btnStyle.Render("Enter to Start"))
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	help := WizardHelpStyle.Render("enter start · esc back")
 	s.WriteString(help)
@@ -568,6 +637,7 @@ func (m SendWizardModel) renderRadio(label, desc string, focused, selected bool)
 	prefix := "  "
 	if selected {
 		indicator = "(*)"
+		style = ToggleOnStyle // Green
 	}
 	if focused {
 		style = RadioActiveStyle
@@ -660,11 +730,11 @@ func RunSendWizard() (*WizardResult, error) {
 		return &WizardResult{Cancelled: true}, nil
 	}
 
-	// If source choice is "File" (0) or "Folder" (1) and no file was selected yet,
+	// If source choice is "File" (1) or "Folder" (2) and no file was selected yet,
 	// we need to launch the file picker outside of alt screen
-	if (result.sourceChoice == 0 || result.sourceChoice == 1) && !result.result.IsText {
-		// Launch picker: Directory mode if sourceChoice == 1
-		isDirMode := (result.sourceChoice == 1)
+	if (result.sourceChoice == 1 || result.sourceChoice == 2) && !result.result.IsText {
+		// Launch picker: Directory mode if sourceChoice == 2
+		isDirMode := (result.sourceChoice == 2)
 		selected, err := RunFilePicker(isDirMode)
 		if err != nil {
 			return nil, err

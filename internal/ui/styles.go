@@ -1,6 +1,8 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Color Palette (Minimal & Cool)
 var (
@@ -82,7 +84,8 @@ var (
 	WizardHeaderStyle = lipgloss.NewStyle().
 				Foreground(ColorPrimary).
 				Bold(true).
-				MarginBottom(1)
+				MarginBottom(1).
+				Italic(true)
 
 	RadioActiveStyle = lipgloss.NewStyle().
 				Foreground(ColorAccent).
