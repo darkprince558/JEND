@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -149,6 +150,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "q", "esc", "ctrl+c":
 				m.Exit = true
 				return m, tea.Quit
+			case "c":
+				// Copy text to clipboard
+				if err := clipboard.WriteAll(m.TextContent); err == nil {
+					m.ClipboardOk = true
+				}
+				return m, nil
 			default:
 				var cmd tea.Cmd
 				m.TextViewport, cmd = m.TextViewport.Update(msg)
@@ -473,7 +480,7 @@ func (m Model) View() string {
 
 			clipLine := ""
 			if m.ClipboardOk {
-				clipLine = lipgloss.NewStyle().Foreground(ColorSecondary).Align(lipgloss.Center).Render("copied to clipboard")
+				clipLine = lipgloss.NewStyle().Foreground(ColorSecondary).Align(lipgloss.Center).Render("✓ copied to clipboard")
 			}
 
 			content = lipgloss.JoinVertical(lipgloss.Center,
@@ -486,7 +493,7 @@ func (m Model) View() string {
 				"",
 				clipLine,
 				"",
-				hintStyle.Render("q quit"),
+				hintStyle.Render("c copy  ·  q quit"),
 			)
 		} else {
 			banner := RenderBanner()

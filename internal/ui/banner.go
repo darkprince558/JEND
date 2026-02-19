@@ -15,13 +15,14 @@ var (
 	BannerStyle = lipgloss.NewStyle().
 			Foreground(ColorPrimary).
 			Bold(true).
-			Align(lipgloss.Center)
+			Align(lipgloss.Center).
+			Padding(1, 2).
+			MarginBottom(1)
 
 	TaglineStyle = lipgloss.NewStyle().
 			Foreground(ColorSubtext).
 			Italic(true).
-			Align(lipgloss.Center).
-			MarginTop(1)
+			Align(lipgloss.Center)
 
 	SectionHeaderStyle = lipgloss.NewStyle().
 				Foreground(ColorPrimary).

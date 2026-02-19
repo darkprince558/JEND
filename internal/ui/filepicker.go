@@ -207,8 +207,22 @@ func (m FilePickerModel) View() string {
 		Align(lipgloss.Center).
 		Render(dir)
 
-	// File picker view
+	// File picker view — left-align items in a fixed-width block, then center the block
 	fpView := m.filepicker.View()
+
+	// Determine a good width for the file list block
+	fpBlockWidth := 60
+	if width > 0 && width-20 < fpBlockWidth {
+		fpBlockWidth = width - 20
+		if fpBlockWidth < 40 {
+			fpBlockWidth = 40
+		}
+	}
+
+	fpBlock := lipgloss.NewStyle().
+		Width(fpBlockWidth).
+		Align(lipgloss.Left).
+		Render(fpView)
 
 	var parts []string
 	parts = append(parts, banner, "", header, breadcrumb, "")
@@ -235,7 +249,7 @@ func (m FilePickerModel) View() string {
 		parts = append(parts, "")
 	}
 
-	parts = append(parts, fpView, "")
+	parts = append(parts, fpBlock, "")
 
 	// Error message
 	if m.err != nil {
