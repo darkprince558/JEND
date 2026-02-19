@@ -212,6 +212,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.TextContent = msg.Content
 		m.ClipboardOk = msg.ClipboardOk
 		m.State = StateDone // Show text UI immediately
+
+		// Format content with clickable links
+		formattedContent := FormatTextWithLinks(msg.Content)
+
 		// Initialize viewport for text display
 		vpWidth := 56
 		vpHeight := 8
@@ -234,7 +238,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.TextViewport = viewport.New(vpWidth, vpHeight)
-		m.TextViewport.SetContent(msg.Content)
+		m.TextViewport.SetContent(formattedContent)
 		return m, nil // Don't quit — let user read the text
 
 	case StatusMsg:

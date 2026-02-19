@@ -29,7 +29,6 @@ func StartAdvertising(port int, code string) (func(), error) {
 	}
 
 	// Register with Cloud Registry (AWS) in parallel
-	// Register with Cloud Registry (AWS) in parallel
 	// Log errors but do not block execution.
 	if err := RegisterWithCloud(code, "", port); err != nil {
 		fmt.Printf("Warning: Cloud registration failed: %v\n", err)

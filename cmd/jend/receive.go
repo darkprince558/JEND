@@ -103,7 +103,8 @@ func startReceiver(code string, headless bool, port string, outputDir string, au
 		// Transfer Logic
 		go func() {
 			core.RunReceiver(p, code, port, outputDir, autoUnzip, noClipboard, noHistory, concurrency, turnCfg, autoApprove)
-			p.Quit()
+			// p.Quit() removed to keep UI open for text viewing.
+			// The UI model will handle the decision to quit or stay open.
 		}()
 
 		if _, err := p.Run(); err != nil {
