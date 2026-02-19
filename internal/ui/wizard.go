@@ -94,7 +94,8 @@ func NewSendWizardModel() SendWizardModel {
 	return SendWizardModel{
 		step: WizardStepSource,
 		sourceOptions: []sourceOption{
-			{label: "File or Folder", icon: ">", desc: "Browse and select a file to send"},
+			{label: "File", icon: ">", desc: "Browse and select a single file"},
+			{label: "Folder", icon: ">", desc: "Select a directory to send (auto-zipped)"},
 			{label: "Text Snippet", icon: ">", desc: "Type or paste text to send"},
 		},
 		sourceChoice: 0,
@@ -166,11 +167,11 @@ func (m SendWizardModel) updateStepSource(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case tea.KeyEnter:
 		m.sourceChoice = m.cursor
-		if m.cursor == 0 {
-			// File picker — we need to exit TUI, launch picker, and come back
+		if m.cursor == 0 || m.cursor == 1 {
+			// File (0) or Folder (1) picker — we need to exit TUI, launch picker, and come back
 			// Use a message to signal this
 			return m, tea.Quit // Will be handled by RunSendWizard
-		} else if m.cursor == 1 {
+		} else if m.cursor == 2 {
 			// Text input
 			m.textEditing = true
 			m.textArea.Reset()
@@ -330,7 +331,18 @@ func (m SendWizardModel) View() string {
 		steps,
 	)
 
-	return ContainerStyle.Render(body)
+	// Add some padding to the whole body (left margin)
+	body = lipgloss.NewStyle().PaddingLeft(4).Render(body)
+
+	// Pin banner to top, content below
+	// Use Place with Top alignment to prevent vertical bouncing
+	fullView := lipgloss.JoinVertical(lipgloss.Left,
+		RenderBanner(),
+		"\n",
+		body,
+	)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, fullView)
 }
 
 func (m SendWizardModel) viewStepSource() string {
@@ -348,21 +360,21 @@ func (m SendWizardModel) viewStepSource() string {
 			prefix = "> "
 		}
 
-		line := fmt.Sprintf("%s%s  %s", prefix, opt.icon, opt.label)
-		s.WriteString(style.Render(line))
-		s.WriteString("\n")
+		labelRaw := fmt.Sprintf("%s%s  %s", prefix, opt.icon, opt.label)
+		line := style.Render(labelRaw)
 
-		// Show description for active item
+		// Inline description if active
 		if i == m.cursor {
 			desc := lipgloss.NewStyle().
 				Foreground(ColorSubtext).
 				Faint(true).
-				PaddingLeft(6).
+				PaddingLeft(2).
 				Render(opt.desc)
-			s.WriteString(desc)
-			s.WriteString("\n")
+			line = lipgloss.JoinHorizontal(lipgloss.Left, line, desc)
 		}
-		s.WriteString("\n")
+
+		s.WriteString(line)
+		s.WriteString("\n\n")
 	}
 
 	help := WizardHelpStyle.Render("↑↓ navigate · enter select · esc quit")
@@ -407,26 +419,12 @@ func (m SendWizardModel) viewStepOptions() string {
 		Bold(true).
 		MarginBottom(1)
 
-	descStyle := lipgloss.NewStyle().
-		Foreground(ColorSubtext).
-		Faint(true).
-		PaddingLeft(8)
-
 	// -- Transfer Mode --
 	s.WriteString(sectionStyle.Render("Transfer Mode"))
 	s.WriteString("\n")
 
-	s.WriteString(m.renderRadio("Direct (P2P)", "", m.optCursor == 0, m.modeChoice == 0))
-	if m.optCursor == 0 {
-		s.WriteString(descStyle.Render("Real-time transfer, both devices must be online"))
-		s.WriteString("\n")
-	}
-
-	s.WriteString(m.renderRadio("Cloud (S3)", "", m.optCursor == 1, m.modeChoice == 1))
-	if m.optCursor == 1 {
-		s.WriteString(descStyle.Render("Upload to cloud, receiver downloads later (max 200MB)"))
-		s.WriteString("\n")
-	}
+	s.WriteString(m.renderRadio("Direct (P2P)", "Fastest · real-time · both online", m.optCursor == 0, m.modeChoice == 0))
+	s.WriteString(m.renderRadio("Cloud (S3)  ", "Async · pick up later · ≤200MB", m.optCursor == 1, m.modeChoice == 1))
 
 	s.WriteString("\n")
 
@@ -434,17 +432,8 @@ func (m SendWizardModel) viewStepOptions() string {
 	s.WriteString(sectionStyle.Render("Compression"))
 	s.WriteString("\n")
 
-	s.WriteString(m.renderToggle("Compress as ZIP", m.optCursor == 2, m.forceZip))
-	if m.optCursor == 2 {
-		s.WriteString(descStyle.Render("Bundle into a .zip archive before sending"))
-		s.WriteString("\n")
-	}
-
-	s.WriteString(m.renderToggle("Compress as TAR", m.optCursor == 3, m.forceTar))
-	if m.optCursor == 3 {
-		s.WriteString(descStyle.Render("Bundle into a .tar.gz archive before sending"))
-		s.WriteString("\n")
-	}
+	s.WriteString(m.renderToggle("Compress as ZIP", "Bundle into .zip archive", m.optCursor == 2, m.forceZip))
+	s.WriteString(m.renderToggle("Compress as TAR", "Bundle into .tar.gz archive", m.optCursor == 3, m.forceTar))
 
 	s.WriteString("\n")
 
@@ -452,23 +441,9 @@ func (m SendWizardModel) viewStepOptions() string {
 	s.WriteString(sectionStyle.Render("Privacy"))
 	s.WriteString("\n")
 
-	s.WriteString(m.renderToggle("Incognito", m.optCursor == 4, m.incognito))
-	if m.optCursor == 4 {
-		s.WriteString(descStyle.Render("Disables clipboard copy and transfer history"))
-		s.WriteString("\n")
-	}
-
-	s.WriteString(m.renderToggle("No clipboard", m.optCursor == 5, m.noClipboard))
-	if m.optCursor == 5 {
-		s.WriteString(descStyle.Render("Don't copy the transfer code to clipboard"))
-		s.WriteString("\n")
-	}
-
-	s.WriteString(m.renderToggle("No history", m.optCursor == 6, m.noHistory))
-	if m.optCursor == 6 {
-		s.WriteString(descStyle.Render("Skip logging this transfer to audit history"))
-		s.WriteString("\n")
-	}
+	s.WriteString(m.renderToggle("Incognito   ", "No clipboard, no history", m.optCursor == 4, m.incognito))
+	s.WriteString(m.renderToggle("No clipboard", "Don't copy code", m.optCursor == 5, m.noClipboard))
+	s.WriteString(m.renderToggle("No history  ", "Skip audit log", m.optCursor == 6, m.noHistory))
 
 	s.WriteString("\n")
 	help := WizardHelpStyle.Render("up/down navigate  |  enter toggle  |  tab continue  |  esc back")
@@ -482,67 +457,93 @@ func (m SendWizardModel) viewStepConfirm() string {
 
 	header := WizardHeaderStyle.Render("Ready to send")
 	s.WriteString(header)
-	s.WriteString("\n")
+	s.WriteString("\n\n")
 
-	// Build card content
-	var rows []string
+	sectionStyle := lipgloss.NewStyle().
+		Foreground(ColorText).
+		Bold(true).
+		MarginBottom(0) // Tighter
+
+	valueStyle := lipgloss.NewStyle().
+		Foreground(ColorSubtext).
+		PaddingLeft(2)
+
+	// -- Source --
+	s.WriteString(sectionStyle.Render("Source"))
+	s.WriteString("\n")
 
 	if m.result.IsText {
 		preview := m.result.TextContent
 		if len(preview) > 40 {
 			preview = preview[:40] + "..."
 		}
-		rows = append(rows, m.confirmRow("Source", fmt.Sprintf("Text: \"%s\"", preview)))
+		s.WriteString(valueStyle.Render(fmt.Sprintf("Text: \"%s\"", preview)))
 	} else {
-		rows = append(rows, m.confirmRow("File", m.fileName))
-		rows = append(rows, m.confirmRow("Size", FormatBytes(m.fileSize)))
+		s.WriteString(valueStyle.Render(fmt.Sprintf("%s (%s)", m.fileName, FormatBytes(m.fileSize))))
 	}
+	s.WriteString("\n\n")
+
+	// -- Transfer Mode --
+	s.WriteString(sectionStyle.Render("Mode"))
+	s.WriteString("\n")
 
 	mode := "Direct (P2P)"
 	if m.result.UseS3 {
 		mode = "Cloud (S3)"
 	}
-	rows = append(rows, m.confirmRow("Mode", mode))
+	s.WriteString(valueStyle.Render(mode))
+	s.WriteString("\n\n")
 
+	// -- Options --
+	var opts []string
 	if m.result.ForceZip {
-		rows = append(rows, m.confirmRow("Compress", "ZIP"))
+		opts = append(opts, "Compress as ZIP")
 	} else if m.result.ForceTar {
-		rows = append(rows, m.confirmRow("Compress", "TAR"))
+		opts = append(opts, "Compress as TAR")
 	}
 
-	// Privacy flags
-	var privacy []string
 	if m.result.Incognito {
-		privacy = append(privacy, "Incognito")
+		opts = append(opts, "Incognito")
 	} else {
 		if m.result.NoClipboard {
-			privacy = append(privacy, "No clipboard")
+			opts = append(opts, "No clipboard")
 		}
 		if m.result.NoHistory {
-			privacy = append(privacy, "No history")
+			opts = append(opts, "No history")
 		}
 	}
-	if len(privacy) > 0 {
-		rows = append(rows, m.confirmRow("Privacy", strings.Join(privacy, ", ")))
+
+	if len(opts) > 0 {
+		s.WriteString(sectionStyle.Render("Options"))
+		s.WriteString("\n")
+		for _, opt := range opts {
+			s.WriteString(valueStyle.Render(opt))
+			s.WriteString("\n")
+		}
+		s.WriteString("\n")
 	}
 
-	cardContent := strings.Join(rows, "\n")
-	card := ConfirmCardStyle.Render(cardContent)
-	s.WriteString(card)
-	s.WriteString("\n")
+	// Start button (keep it distinct but maybe less "button-y" if we want pure clean text?
+	// The user said "vibe of the option menu", which doesn't have a button.
+	// But we need a call to action.
+	// Let's keep the button but make it aligned left?
+	// Or maybe just a prompt?)
 
-	// Start button
+	// The previous button was centered.
+	// Let's make it a left-aligned prompt to match the vibe.
+	// Or a simple outlined button.
+
 	btnStyle := lipgloss.NewStyle().
 		Foreground(ColorBg).
 		Background(ColorSecondary).
 		Bold(true).
-		Padding(0, 4).
-		Align(lipgloss.Center)
+		Padding(0, 2).
+		MarginTop(1)
 
-	s.WriteString(btnStyle.Render("  Press Enter to Start  "))
+	s.WriteString(btnStyle.Render("Enter to Start"))
 	s.WriteString("\n\n")
 
-	help := WizardHelpStyle.Render("enter start  |  esc back")
+	help := WizardHelpStyle.Render("esc back")
 	s.WriteString(help)
 
 	return s.String()
@@ -551,8 +552,6 @@ func (m SendWizardModel) viewStepConfirm() string {
 // ── Helpers ──
 
 func (m SendWizardModel) renderRadio(label, desc string, focused, selected bool) string {
-	var s strings.Builder
-
 	indicator := "( )"
 	style := RadioInactiveStyle
 	prefix := "  "
@@ -564,22 +563,21 @@ func (m SendWizardModel) renderRadio(label, desc string, focused, selected bool)
 		prefix = "> "
 	}
 
-	s.WriteString(style.Render(fmt.Sprintf("%s%s  %s", prefix, indicator, label)))
-	s.WriteString("\n")
+	labelRaw := fmt.Sprintf("%s%s  %s", prefix, indicator, label)
+	line := style.Render(labelRaw)
 
-	if focused {
+	if focused && desc != "" {
 		descStyle := lipgloss.NewStyle().
 			Foreground(ColorSubtext).
 			Faint(true).
-			PaddingLeft(8)
-		s.WriteString(descStyle.Render(desc))
-		s.WriteString("\n")
+			PaddingLeft(2)
+		line = lipgloss.JoinHorizontal(lipgloss.Left, line, descStyle.Render(desc))
 	}
 
-	return s.String()
+	return line + "\n"
 }
 
-func (m SendWizardModel) renderToggle(label string, focused, on bool) string {
+func (m SendWizardModel) renderToggle(label, desc string, focused, on bool) string {
 	prefix := "  "
 	style := ToggleOffStyle
 	toggle := "[ ]"
@@ -592,7 +590,18 @@ func (m SendWizardModel) renderToggle(label string, focused, on bool) string {
 		prefix = "> "
 	}
 
-	return style.Render(fmt.Sprintf("%s%s  %s", prefix, toggle, label)) + "\n"
+	labelRaw := fmt.Sprintf("%s%s  %s", prefix, toggle, label)
+	line := style.Render(labelRaw)
+
+	if focused && desc != "" {
+		descStyle := lipgloss.NewStyle().
+			Foreground(ColorSubtext).
+			Faint(true).
+			PaddingLeft(2)
+		line = lipgloss.JoinHorizontal(lipgloss.Left, line, descStyle.Render(desc))
+	}
+
+	return line + "\n"
 }
 
 func (m SendWizardModel) confirmRow(label, value string) string {
@@ -640,10 +649,12 @@ func RunSendWizard() (*WizardResult, error) {
 		return &WizardResult{Cancelled: true}, nil
 	}
 
-	// If source choice is "File" and no file was selected yet,
+	// If source choice is "File" (0) or "Folder" (1) and no file was selected yet,
 	// we need to launch the file picker outside of alt screen
-	if result.sourceChoice == 0 && !result.result.IsText {
-		selected, err := RunFilePicker()
+	if (result.sourceChoice == 0 || result.sourceChoice == 1) && !result.result.IsText {
+		// Launch picker: Directory mode if sourceChoice == 1
+		isDirMode := (result.sourceChoice == 1)
+		selected, err := RunFilePicker(isDirMode)
 		if err != nil {
 			return nil, err
 		}

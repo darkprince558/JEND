@@ -13,10 +13,11 @@ import (
 
 // FilePickerModel wraps the bubbles filepicker with JEND styling + search.
 type FilePickerModel struct {
-	filepicker   filepicker.Model
-	selectedFile string
-	quitting     bool
-	err          error
+	filepicker    filepicker.Model
+	selectedFile  string
+	quitting      bool
+	err           error
+	directoryMode bool
 	// Search mode
 	searchInput textinput.Model
 	searching   bool
@@ -27,7 +28,7 @@ type FilePickerModel struct {
 }
 
 // NewFilePickerModel creates a file picker starting in the current directory.
-func NewFilePickerModel() FilePickerModel {
+func NewFilePickerModel(directoryMode bool) FilePickerModel {
 	fp := filepicker.New()
 
 	// Start in CWD
@@ -64,8 +65,9 @@ func NewFilePickerModel() FilePickerModel {
 	ti.CharLimit = 256
 
 	return FilePickerModel{
-		filepicker:  fp,
-		searchInput: ti,
+		filepicker:    fp,
+		searchInput:   ti,
+		directoryMode: directoryMode,
 	}
 }
 
@@ -144,6 +146,20 @@ func (m FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Directory Mode Keybinds
+		if m.directoryMode {
+			switch msg.String() {
+			case "d":
+				// Select current directory
+				m.selectedFile = m.filepicker.CurrentDirectory
+				return m, tea.Quit
+			case " ":
+				// Select highlighted directory (if possible to get it, otherwise assume user enters it then presses 'd')
+				// Bubbles filepicker doesn't easily expose the "highlighted" item without hacking.
+				// For now, let's rely on "d" for current directory, as users naturally navigate INTO the folder they want.
+			}
+		}
+
 		// Normal filepicker mode
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
@@ -196,6 +212,9 @@ func (m FilePickerModel) View() string {
 
 	banner := RenderBanner()
 	header := SectionHeaderStyle.Render("SELECT FILE")
+	if m.directoryMode {
+		header = SectionHeaderStyle.Render("SELECT FOLDER")
+	}
 
 	// Breadcrumb
 	dir := m.filepicker.CurrentDirectory
@@ -204,10 +223,10 @@ func (m FilePickerModel) View() string {
 	}
 	breadcrumb := lipgloss.NewStyle().
 		Foreground(ColorSubtext).
-		Align(lipgloss.Center).
+		Align(lipgloss.Left).
 		Render(dir)
 
-	// File picker view — left-align items in a fixed-width block, then center the block
+	// File picker view — left-align items in a fixed-width block
 	fpView := m.filepicker.View()
 
 	// Determine a good width for the file list block
@@ -224,8 +243,7 @@ func (m FilePickerModel) View() string {
 		Align(lipgloss.Left).
 		Render(fpView)
 
-	var parts []string
-	parts = append(parts, banner, "", header, breadcrumb, "")
+	var contentLines []string
 
 	// Search bar (if active)
 	if m.searching {
@@ -236,48 +254,69 @@ func (m FilePickerModel) View() string {
 			Width(50).
 			Render(m.searchInput.View())
 
-		parts = append(parts, searchBar)
+		contentLines = append(contentLines, searchBar)
 
 		if m.searchErr != "" {
 			errLine := lipgloss.NewStyle().
 				Foreground(ColorError).
 				Faint(true).
-				Align(lipgloss.Center).
+				Align(lipgloss.Left).
 				Render(m.searchErr)
-			parts = append(parts, errLine)
+			contentLines = append(contentLines, errLine)
 		}
-		parts = append(parts, "")
+		contentLines = append(contentLines, "")
 	}
 
-	parts = append(parts, fpBlock, "")
+	contentLines = append(contentLines, fpBlock, "")
 
 	// Error message
 	if m.err != nil {
-		parts = append(parts, ErrorStyle.Render(m.err.Error()), "")
+		contentLines = append(contentLines, ErrorStyle.Render(m.err.Error()), "")
 	}
 
 	// Help footer
 	helpText := "/ go to path  ·  enter select  ·  esc cancel"
 	if m.searching {
 		helpText = "enter navigate  ·  esc cancel search"
+	} else if m.directoryMode {
+		helpText = "enter open folder  ·  d select current folder (.)  ·  esc cancel"
 	}
 
 	help := lipgloss.NewStyle().
 		Foreground(ColorSubtext).
 		Faint(true).
-		Align(lipgloss.Center).
+		Align(lipgloss.Left).
 		Render(helpText)
-	parts = append(parts, help)
+	contentLines = append(contentLines, help)
 
-	content := lipgloss.JoinVertical(lipgloss.Center, parts...)
+	// Join parts for the main content area
+	mainContent := lipgloss.JoinVertical(lipgloss.Left, contentLines...)
 
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
+	// Wrap body
+	body := lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		breadcrumb,
+		"",
+		mainContent,
+	)
+
+	// Add left padding
+	body = lipgloss.NewStyle().PaddingLeft(4).Render(body)
+
+	// Pin banner to top
+	fullView := lipgloss.JoinVertical(lipgloss.Left,
+		banner,
+		"\n",
+		body,
+	)
+
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, fullView)
 }
 
 // RunFilePicker launches the interactive file picker TUI.
 // Returns the selected file path, or empty string if cancelled.
-func RunFilePicker() (string, error) {
-	m := NewFilePickerModel()
+func RunFilePicker(directoryMode bool) (string, error) {
+	m := NewFilePickerModel(directoryMode)
 	tm, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	if err != nil {
 		return "", err
