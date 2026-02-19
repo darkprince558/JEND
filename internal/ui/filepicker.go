@@ -111,9 +111,6 @@ func (m FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				dir := cleanPath
 				if !info.IsDir() {
 					dir = filepath.Dir(cleanPath)
-					// Optional: Pre-select the file?
-					// Bubbles filepicker doesn't let us easily "select" a file without it being in the list and matching index.
-					// For now, just going to the dir is enough as per request.
 				}
 				m.filepicker.CurrentDirectory = dir
 				m.statusMessage = fmt.Sprintf("File dropped: %s", filepath.Base(cleanPath))

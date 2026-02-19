@@ -361,18 +361,7 @@ func (m SendWizardModel) updateStepConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 	case tea.KeyEnter:
 		items := m.getConfirmItems()
-		// If last item (Start) is selected, or just Enter on any item if that's preferred.
-		// User said "scrollable through the options... and when hovered... show descriptions".
-		// Doesn't say clicking does anything specific other than select.
-		// But obviously need a way to Start.
-		// "Enter to Start" button implies explicit action.
-		// I'll make Enter trigger start ONLY if on the "Start" button OR if it's the default action.
-		// But usually in menus Enter triggers the selected item.
-		// For consistency, let's say Enter on "Start" triggers it.
-		// For others, maybe it cycles back to edit? That might be annoying.
-		// Let's settle on: Enter always starts transfer to keep it simple, UNLESS on a specific editable field?
-		// No, user specifically asked for a scrollable menu.
-		// I'll make Enter trigger start ONLY when "Start Transfer" is selected.
+		// Only trigger completion if the "Start" button is selected
 		if m.confirmCursor == len(items)-1 {
 			m.result.FilePath = m.filePath
 			m.quitting = false
