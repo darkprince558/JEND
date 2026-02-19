@@ -26,8 +26,7 @@ var (
 	SectionHeaderStyle = lipgloss.NewStyle().
 				Foreground(ColorPrimary).
 				Bold(true).
-				Padding(1, 0, 0, 0).
-				MarginBottom(1).
+				Padding(1, 4).
 				Align(lipgloss.Center)
 )
 

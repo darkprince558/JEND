@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -49,7 +50,7 @@ type SendWizardModel struct {
 	sourceChoice  int
 
 	// Step 1 sub: text input
-	textInput   string
+	textArea    textarea.Model
 	textEditing bool
 
 	// Step 1 sub: file selected
@@ -70,19 +71,34 @@ type SendWizardModel struct {
 
 // NewSendWizardModel creates the wizard model
 func NewSendWizardModel() SendWizardModel {
+	// Configure textarea
+	ta := textarea.New()
+	ta.Placeholder = "Type or paste your text here..."
+	ta.ShowLineNumbers = false
+	ta.SetWidth(50)
+	ta.SetHeight(6)
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.FocusedStyle.Base = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorAccent).
+		Padding(0, 1)
+	ta.BlurredStyle.Base = ta.FocusedStyle.Base
+	ta.CharLimit = 4096
+
 	return SendWizardModel{
 		step: WizardStepSource,
 		sourceOptions: []sourceOption{
-			{label: "File or Folder", icon: "📂", desc: "Browse and select a file to send"},
-			{label: "Text Snippet", icon: "📝", desc: "Type or paste text to send"},
+			{label: "File or Folder", icon: ">", desc: "Browse and select a file to send"},
+			{label: "Text Snippet", icon: ">", desc: "Type or paste text to send"},
 		},
 		sourceChoice: 0,
 		modeChoice:   0,
+		textArea:     ta,
 	}
 }
 
 func (m SendWizardModel) Init() tea.Cmd {
-	return nil
+	return textarea.Blink
 }
 
 func (m SendWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -116,6 +132,13 @@ func (m SendWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Forward non-key messages to textarea when editing
+	if m.textEditing {
+		var cmd tea.Cmd
+		m.textArea, cmd = m.textArea.Update(msg)
+		return m, cmd
+	}
+
 	return m, nil
 }
 
@@ -144,8 +167,9 @@ func (m SendWizardModel) updateStepSource(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.cursor == 1 {
 			// Text input
 			m.textEditing = true
-			m.textInput = ""
-			return m, nil
+			m.textArea.Reset()
+			m.textArea.Focus()
+			return m, textarea.Blink
 		}
 	}
 	return m, nil
@@ -157,34 +181,28 @@ func (m SendWizardModel) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.textEditing = false
+		m.textArea.Blur()
 		return m, nil
-	case tea.KeyEnter:
-		if msg.Alt {
-			// Alt+Enter = newline
-			m.textInput += "\n"
-			return m, nil
-		}
-		// Submit text
-		if strings.TrimSpace(m.textInput) == "" {
+	case tea.KeyTab:
+		// Tab to submit and move to next step
+		val := strings.TrimSpace(m.textArea.Value())
+		if val == "" {
 			return m, nil // Don't allow empty
 		}
-		m.result.TextContent = m.textInput
+		m.result.TextContent = m.textArea.Value()
 		m.result.IsText = true
 		m.textEditing = false
+		m.textArea.Blur()
 		m.step = WizardStepOptions
 		m.cursor = 0
 		m.optCursor = 0
 		return m, nil
-	case tea.KeyBackspace:
-		if len(m.textInput) > 0 {
-			m.textInput = m.textInput[:len(m.textInput)-1]
-		}
-	case tea.KeyRunes:
-		m.textInput += string(msg.Runes)
-	case tea.KeySpace:
-		m.textInput += " "
 	}
-	return m, nil
+
+	// Forward to textarea
+	var cmd tea.Cmd
+	m.textArea, cmd = m.textArea.Update(msg)
+	return m, cmd
 }
 
 // ── Step 2: Options ──
@@ -208,7 +226,7 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.cursor = m.sourceChoice
 		m.filePath = ""
 		m.fileName = ""
-		m.textInput = ""
+		m.textArea.Reset()
 		m.result.IsText = false
 		return m, nil
 	case tea.KeyEnter, tea.KeySpace:
@@ -340,29 +358,14 @@ func (m SendWizardModel) viewStepSource() string {
 func (m SendWizardModel) viewTextInput() string {
 	var s strings.Builder
 
-	header := WizardHeaderStyle.Render("📝 Type your text")
+	header := WizardHeaderStyle.Render("Type your text")
 	s.WriteString(header)
 	s.WriteString("\n\n")
 
-	// Text area with cursor
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorAccent).
-		Padding(1, 2).
-		Width(50)
-
-	displayText := m.textInput + "█"
-	if m.textInput == "" {
-		displayText = lipgloss.NewStyle().
-			Foreground(ColorSubtext).
-			Faint(true).
-			Render("Start typing...") + "█"
-	}
-
-	s.WriteString(boxStyle.Render(displayText))
+	s.WriteString(m.textArea.View())
 	s.WriteString("\n\n")
 
-	help := WizardHelpStyle.Render("enter submit · esc back")
+	help := WizardHelpStyle.Render("tab submit · esc back")
 	s.WriteString(help)
 
 	return s.String()
@@ -373,11 +376,11 @@ func (m SendWizardModel) viewStepOptions() string {
 
 	// File info header
 	if m.result.IsText {
-		header := WizardHeaderStyle.Render("📝 Sending text snippet")
+		header := WizardHeaderStyle.Render("Sending text snippet")
 		s.WriteString(header)
 	} else {
 		sizeStr := FormatBytes(m.fileSize)
-		header := WizardHeaderStyle.Render(fmt.Sprintf("📂 %s (%s)", m.fileName, sizeStr))
+		header := WizardHeaderStyle.Render(fmt.Sprintf("%s (%s)", m.fileName, sizeStr))
 		s.WriteString(header)
 	}
 
