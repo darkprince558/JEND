@@ -72,13 +72,14 @@ type SendWizardModel struct {
 	fileName string
 
 	// Step 2: Options
-	optCursor   int
-	modeChoice  int // 0 = Direct, 1 = S3
-	forceZip    bool
-	forceTar    bool
-	incognito   bool
-	noClipboard bool
-	noHistory   bool
+	optCursor     int
+	confirmCursor int
+	modeChoice    int // 0 = Direct, 1 = S3
+	forceZip      bool
+	forceTar      bool
+	incognito     bool
+	noClipboard   bool
+	noHistory     bool
 
 	// Terminal size
 	width  int
@@ -219,6 +220,7 @@ func (m SendWizardModel) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.step = WizardStepOptions
 		m.cursor = 0
 		m.optCursor = 0
+		m.confirmCursor = 0
 		return m, nil
 	}
 
@@ -344,15 +346,38 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 
 func (m SendWizardModel) updateStepConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
+	case tea.KeyUp:
+		if m.confirmCursor > 0 {
+			m.confirmCursor--
+		}
+	case tea.KeyDown:
+		items := m.getConfirmItems()
+		if m.confirmCursor < len(items)-1 {
+			m.confirmCursor++
+		}
 	case tea.KeyEsc, tea.KeyLeft:
 		m.step = WizardStepOptions
 		m.optCursor = 0
 		return m, nil
 	case tea.KeyEnter:
-		// Ship it!
-		m.result.FilePath = m.filePath
-		m.quitting = false
-		return m, tea.Quit
+		items := m.getConfirmItems()
+		// If last item (Start) is selected, or just Enter on any item if that's preferred.
+		// User said "scrollable through the options... and when hovered... show descriptions".
+		// Doesn't say clicking does anything specific other than select.
+		// But obviously need a way to Start.
+		// "Enter to Start" button implies explicit action.
+		// I'll make Enter trigger start ONLY if on the "Start" button OR if it's the default action.
+		// But usually in menus Enter triggers the selected item.
+		// For consistency, let's say Enter on "Start" triggers it.
+		// For others, maybe it cycles back to edit? That might be annoying.
+		// Let's settle on: Enter always starts transfer to keep it simple, UNLESS on a specific editable field?
+		// No, user specifically asked for a scrollable menu.
+		// I'll make Enter trigger start ONLY when "Start Transfer" is selected.
+		if m.confirmCursor == len(items)-1 {
+			m.result.FilePath = m.filePath
+			m.quitting = false
+			return m, tea.Quit
+		}
 	}
 	return m, nil
 }
@@ -411,8 +436,8 @@ func (m SendWizardModel) viewStepSource() string {
 	// Calculate max length for alignment
 	maxLen := 0
 	for _, opt := range m.sourceOptions {
-		// prefix (2) + icon (1) + spacing (2) + label len
-		l := 5 + len(opt.label)
+		// prefix/icon (2) + spacing (1) + label len
+		l := 3 + len(opt.label)
 		if l > maxLen {
 			maxLen = l
 		}
@@ -420,13 +445,14 @@ func (m SendWizardModel) viewStepSource() string {
 
 	for i, opt := range m.sourceOptions {
 		style := lipgloss.NewStyle().Foreground(ColorText).Width(maxLen)
-		prefix := "  "
+		prefix := " "
+		icon := ">"
 		if i == m.cursor {
 			style = RadioActiveStyle.Copy().Width(maxLen)
-			prefix = "> "
+			prefix = ">"
 		}
 
-		labelRaw := fmt.Sprintf("%s%s  %s", prefix, opt.icon, opt.label)
+		labelRaw := fmt.Sprintf("%s%s %s", prefix, icon, opt.label)
 		line := style.Render(labelRaw)
 
 		// Inline description if active
@@ -502,7 +528,6 @@ func (m SendWizardModel) viewStepOptions() string {
 	sectionStyle := lipgloss.NewStyle().
 		Foreground(ColorText).
 		Bold(true).
-		MarginBottom(1).
 		Align(lipgloss.Left)
 
 	// -- Transfer Mode --
@@ -512,16 +537,12 @@ func (m SendWizardModel) viewStepOptions() string {
 	s.WriteString(m.renderRadio("Direct (P2P)", "Fastest · real-time · both online", m.optCursor == 0, m.modeChoice == 0))
 	s.WriteString(m.renderRadio("Cloud (S3)  ", "Async · pick up later · ≤200MB", m.optCursor == 1, m.modeChoice == 1))
 
-	s.WriteString("\n")
-
 	// -- Compression --
 	s.WriteString(sectionStyle.Render("Compression"))
 	s.WriteString("\n")
 
 	s.WriteString(m.renderToggle("Compress as ZIP", "Bundle into .zip archive", m.optCursor == 2, m.forceZip))
 	s.WriteString(m.renderToggle("Compress as TAR", "Bundle into .tar.gz archive", m.optCursor == 3, m.forceTar))
-
-	s.WriteString("\n")
 
 	// -- Privacy --
 	s.WriteString(sectionStyle.Render("Privacy"))
@@ -531,7 +552,6 @@ func (m SendWizardModel) viewStepOptions() string {
 	s.WriteString(m.renderToggle("No clipboard", "Don't copy code", m.optCursor == 5, m.noClipboard))
 	s.WriteString(m.renderToggle("No history  ", "Skip audit log", m.optCursor == 6, m.noHistory))
 
-	s.WriteString("\n")
 	help := WizardHelpStyle.Render("arrows navigate · enter toggle · esc back")
 	s.WriteString(help)
 
@@ -545,88 +565,133 @@ func (m SendWizardModel) viewStepConfirm() string {
 	s.WriteString(header)
 	s.WriteString("\n")
 
-	sectionStyle := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Bold(true).
-		MarginBottom(1).
-		Align(lipgloss.Left)
+	items := m.getConfirmItems()
 
-	valueStyle := lipgloss.NewStyle().
-		Foreground(ColorSubtext).
-		Background(ColorPanel).
-		Padding(0, 1).
-		MarginLeft(2)
-
-	// -- Source --
-	s.WriteString(sectionStyle.Render("Source"))
-	s.WriteString("\n")
-
-	if m.result.IsText {
-		preview := m.result.TextContent
-		if len(preview) > 40 {
-			preview = preview[:40] + "..."
-		}
-		s.WriteString(valueStyle.Render(fmt.Sprintf("Text: \"%s\"", preview)))
-	} else {
-		s.WriteString(valueStyle.Render(fmt.Sprintf("%s (%s)", m.fileName, FormatBytes(m.fileSize))))
-	}
-	s.WriteString("\n\n")
-
-	// -- Transfer Mode --
-	s.WriteString(sectionStyle.Render("Mode"))
-	s.WriteString("\n")
-
-	mode := "Direct (P2P)"
-	if m.result.UseS3 {
-		mode = "Cloud (S3)"
-	}
-	s.WriteString(valueStyle.Render(mode))
-	s.WriteString("\n\n")
-
-	// -- Options --
-	var opts []string
-	if m.result.ForceZip {
-		opts = append(opts, "Compress as ZIP")
-	} else if m.result.ForceTar {
-		opts = append(opts, "Compress as TAR")
-	}
-
-	if m.result.Incognito {
-		opts = append(opts, "Incognito")
-	} else {
-		if m.result.NoClipboard {
-			opts = append(opts, "No clipboard")
-		}
-		if m.result.NoHistory {
-			opts = append(opts, "No history")
+	// Calculate max label length for consistency
+	maxLabel := 0
+	for _, it := range items {
+		if len(it.label) > maxLabel {
+			maxLabel = len(it.label)
 		}
 	}
 
-	if len(opts) > 0 {
-		s.WriteString(sectionStyle.Render("Options"))
-		s.WriteString("\n")
-		for _, opt := range opts {
-			s.WriteString(valueStyle.Render(opt))
-			s.WriteString("\n")
+	for i, item := range items {
+		// Base style
+		style := lipgloss.NewStyle().Foreground(ColorText).Width(maxLabel)
+		prefix := " "
+		icon := ">"
+
+		// Button special formatting
+		if item.isButton {
+			btnStyle := lipgloss.NewStyle().
+				Foreground(ColorBg).
+				Background(ColorSecondary).
+				Bold(true).
+				Padding(0, 2)
+
+			if i == m.confirmCursor {
+				// Highlighted button
+				btnStyle = btnStyle.Copy().
+					Background(ColorAccent).
+					Foreground(ColorBg)
+			}
+
+			// No icon or selection prefix for button
+			line := "   " + btnStyle.Render(item.label)
+			s.WriteString("\n" + line + "\n")
+			continue
 		}
+
+		// Regular item
+		if i == m.confirmCursor {
+			style = RadioActiveStyle.Copy().Width(maxLabel)
+			prefix = ">" // Becomes ">>"
+		}
+
+		// Label (prefix + icon + space)
+		line := prefix + icon + " " + style.Render(item.label)
+
+		// Description (Value)
+		if i == m.confirmCursor {
+			descStyle := lipgloss.NewStyle().
+				Foreground(ColorSubtext).
+				Faint(true).
+				PaddingLeft(2)
+			line = lipgloss.JoinHorizontal(lipgloss.Left, line, descStyle.Render(item.desc))
+		} else {
+			// Show the value slightly dimmed
+			valStyle := lipgloss.NewStyle().
+				Foreground(ColorSubtext).
+				PaddingLeft(2)
+			line = lipgloss.JoinHorizontal(lipgloss.Left, line, valStyle.Render(item.value))
+		}
+
+		s.WriteString(line)
 		s.WriteString("\n")
 	}
 
-	// Start button
-	btnStyle := lipgloss.NewStyle().
-		Foreground(ColorBg).
-		Background(ColorSecondary).
-		Bold(true).
-		Padding(0, 2)
-
 	s.WriteString("\n")
-	s.WriteString(btnStyle.Render("Enter to Start"))
-	s.WriteString("\n")
-
-	help := WizardHelpStyle.Render("enter start · esc back")
+	help := WizardHelpStyle.Render("arrows navigate · enter start · esc back")
 	s.WriteString(help)
 
 	return s.String()
+}
+
+type confirmItem struct {
+	label    string
+	value    string
+	desc     string
+	isButton bool
+}
+
+func (m SendWizardModel) getConfirmItems() []confirmItem {
+	items := []confirmItem{}
+
+	// Source
+	srcVal := m.fileName
+	srcDesc := fmt.Sprintf("%s (%s)", m.filePath, FormatBytes(m.fileSize))
+	if m.result.IsText {
+		srcVal = "Text Snippet"
+		preview := strings.ReplaceAll(m.result.TextContent, "\n", " ")
+		if len(preview) > 40 {
+			preview = preview[:40] + "..."
+		}
+		srcDesc = fmt.Sprintf("\"%s\"", preview)
+	}
+	items = append(items, confirmItem{label: "Source", value: srcVal, desc: srcDesc})
+
+	// Mode
+	modeVal := "Direct (P2P)"
+	modeDesc := "Fastest · real-time · both online"
+	if m.result.UseS3 {
+		modeVal = "Cloud (S3)"
+		modeDesc = "Async · pick up later · ≤200MB"
+	}
+	items = append(items, confirmItem{label: "Mode", value: modeVal, desc: modeDesc})
+
+	// Options
+	if m.result.ForceZip {
+		items = append(items, confirmItem{label: "Compression", value: "ZIP", desc: "Bundle into .zip archive"})
+	} else if m.result.ForceTar {
+		items = append(items, confirmItem{label: "Compression", value: "TAR", desc: "Bundle into .tar.gz archive"})
+	}
+
+	if m.result.Incognito {
+		items = append(items, confirmItem{label: "Privacy", value: "Incognito", desc: "No clipboard, no history"})
+	} else {
+		if m.result.NoClipboard {
+			items = append(items, confirmItem{label: "Clipboard", value: "Disabled", desc: "Don't copy code"})
+		}
+		if m.result.NoHistory {
+			items = append(items, confirmItem{label: "History", value: "Disabled", desc: "Skip audit log"})
+		}
+	}
+
+	// Start Button
+	items = append(items, confirmItem{label: "Enter to Start", isButton: true})
+
+	return items
+
 }
 
 // ── Helpers ──
@@ -634,17 +699,19 @@ func (m SendWizardModel) viewStepConfirm() string {
 func (m SendWizardModel) renderRadio(label, desc string, focused, selected bool) string {
 	indicator := "( )"
 	style := RadioInactiveStyle
-	prefix := "  "
+	prefix := " "
+	icon := ">"
+
 	if selected {
 		indicator = "(*)"
 		style = ToggleOnStyle // Green
 	}
 	if focused {
 		style = RadioActiveStyle
-		prefix = "> "
+		prefix = ">" // Becomes ">>"
 	}
 
-	labelRaw := fmt.Sprintf("%s%s  %s", prefix, indicator, label)
+	labelRaw := fmt.Sprintf("%s%s %s %s", prefix, icon, indicator, label)
 	line := style.Render(labelRaw)
 
 	if focused && desc != "" {
@@ -659,7 +726,8 @@ func (m SendWizardModel) renderRadio(label, desc string, focused, selected bool)
 }
 
 func (m SendWizardModel) renderToggle(label, desc string, focused, on bool) string {
-	prefix := "  "
+	prefix := " "
+	icon := ">"
 	style := ToggleOffStyle
 	toggle := "[ ]"
 	if on {
@@ -668,10 +736,10 @@ func (m SendWizardModel) renderToggle(label, desc string, focused, on bool) stri
 	}
 	if focused {
 		style = RadioActiveStyle
-		prefix = "> "
+		prefix = ">" // Becomes ">>"
 	}
 
-	labelRaw := fmt.Sprintf("%s%s  %s", prefix, toggle, label)
+	labelRaw := fmt.Sprintf("%s%s %s %s", prefix, icon, toggle, label)
 	line := style.Render(labelRaw)
 
 	if focused && desc != "" {
@@ -755,6 +823,7 @@ func RunSendWizard() (*WizardResult, error) {
 		result.step = WizardStepOptions
 		result.cursor = 0
 		result.optCursor = 0
+		result.confirmCursor = 0
 		result.result.FilePath = selected
 
 		tm2, err := tea.NewProgram(result, tea.WithAltScreen()).Run()
