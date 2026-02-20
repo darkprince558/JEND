@@ -83,7 +83,7 @@ func withLock(action func() error) error {
 	if !locked {
 		return fmt.Errorf("timed out waiting for history lock")
 	}
-	defer fileLock.Unlock()
+	defer fileLock.Unlock() //nolint:errcheck
 
 	return action()
 }
@@ -107,7 +107,7 @@ func withReadLock(action func() error) error {
 	if !locked {
 		return fmt.Errorf("timed out waiting for history read lock")
 	}
-	defer fileLock.Unlock()
+	defer fileLock.Unlock() //nolint:errcheck
 
 	return action()
 }
@@ -220,7 +220,7 @@ func loadHistoryInternal(path string) ([]LogEntry, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	var entries []LogEntry
 	scanner := bufio.NewScanner(f)
@@ -245,7 +245,7 @@ func rewriteHistoryInternal(path string, entries []LogEntry) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	// Reverse to write oldest first (if desired for append log style)
 	// But JSONL doesn't strictly require order.
@@ -266,7 +266,7 @@ func appendEntryInternal(path string, entry LogEntry) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -339,7 +339,7 @@ func ShowHistory() {
 		}
 
 		// Color coding for role
-		roleStr := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(role)
+		var roleStr string
 		if role == "sender" {
 			roleStr = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500")).Render("SENDER")
 		} else {

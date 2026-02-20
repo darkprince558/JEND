@@ -23,13 +23,13 @@ func TestPacketLoss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pc1.Close()
+	defer pc1.Close() //nolint:errcheck
 
 	pc2, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pc2.Close()
+	defer pc2.Close() //nolint:errcheck
 
 	// Wrap PC1 (Sender) with 20% loss
 	lossyPC1 := simulation.NewLossyPacketConn(pc1, 0.20, 10*time.Millisecond)
@@ -42,7 +42,7 @@ func TestPacketLoss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer ln.Close() //nolint:errcheck
 
 	// 3. Sender Dials Receiver using Lossy PC1
 	// Context
@@ -73,7 +73,7 @@ func TestPacketLoss(t *testing.T) {
 			if err != nil {
 				break
 			}
-			stream.Write(buf[:n])
+			stream.Write(buf[:n]) //nolint:errcheck
 		}
 	}()
 
@@ -107,7 +107,7 @@ func TestPacketLoss(t *testing.T) {
 		}
 	}
 
-	stream.Close()
+	stream.Close() //nolint:errcheck
 	wg.Wait()
 	t.Log("Successfully sent 100 messages with 20% packet loss!")
 }
@@ -118,13 +118,13 @@ func TestHighLatency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pc1.Close()
+	defer pc1.Close() //nolint:errcheck
 
 	pc2, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pc2.Close()
+	defer pc2.Close() //nolint:errcheck
 
 	// Wrap PC1 (Sender) with 250ms latency (500ms RTT)
 	// No loss, just delay
@@ -137,7 +137,7 @@ func TestHighLatency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer ln.Close() //nolint:errcheck
 
 	// 3. Sender Dials Receiver using Simulated PC
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second) // Increased timeout for latency
@@ -159,7 +159,7 @@ func TestHighLatency(t *testing.T) {
 			return
 		}
 		// Echo
-		io.Copy(stream, stream)
+		io.Copy(stream, stream) //nolint:errcheck
 	}()
 
 	conn, err := tr.DialPacket(simPC1, pc2.LocalAddr())
@@ -206,6 +206,6 @@ func TestHighLatency(t *testing.T) {
 
 	t.Logf("High Latency Test Passed! Round Trip: %v", elapsed)
 
-	stream.Close()
+	stream.Close() //nolint:errcheck
 	wg.Wait()
 }

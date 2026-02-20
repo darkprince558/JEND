@@ -150,7 +150,7 @@ func startSender(filePath string, textContent string, isText bool, headless bool
 
 	// Copy to Clipboard
 	if !noClipboard {
-		clipboard.WriteAll(code) // Ignore error, just try best effort
+		_ = clipboard.WriteAll(code) // Ignore error, just try best effort
 	}
 
 	// Context for cancellation

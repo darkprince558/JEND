@@ -87,7 +87,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 		}
 
 		if !noHistory {
-			audit.WriteEntry(audit.LogEntry{
+			audit.WriteEntry(audit.LogEntry{ //nolint:errcheck
 				Timestamp: startTime,
 				Role:      "receiver",
 				Code:      code,
@@ -234,7 +234,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 		stream, err := conn.OpenStreamSync(context.Background())
 		if err != nil {
 			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to open stream: %v", err), Level: ui.LevelWarning})
-			conn.CloseWithError(0, "stream open failed")
+			conn.CloseWithError(0, "stream open failed") //nolint:errcheck
 			time.Sleep(time.Second)
 			continue
 		}
@@ -255,8 +255,8 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 				return
 			}
 			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("transfer interrupted (%v). retrying", err), Level: ui.LevelWarning})
-			stream.Close()
-			conn.CloseWithError(0, "interrupted")
+			stream.Close()                        //nolint:errcheck
+			conn.CloseWithError(0, "interrupted") //nolint:errcheck
 			time.Sleep(time.Second)
 			continue
 		}
@@ -323,7 +323,7 @@ func handleReceiveSession(
 
 			accepted := <-respChan
 			if !accepted {
-				protocol.EncodeHeader(stream, protocol.TypeCancel, 0)
+				protocol.EncodeHeader(stream, protocol.TypeCancel, 0) //nolint:errcheck
 				return false, 0, "", fmt.Errorf("transfer cancelled by user")
 			}
 		}
@@ -397,7 +397,7 @@ func handleReceiveSession(
 		}
 		outFile = f
 	}
-	defer outFile.Close()
+	defer outFile.Close() //nolint:errcheck
 
 	buf := make([]byte, config.ChunkSize)
 	var totalRecv = offset
@@ -411,10 +411,10 @@ func handleReceiveSession(
 			return false, fileSize, "", err
 		}
 		if _, err := io.CopyN(hasher, existingFile, offset); err != nil {
-			existingFile.Close()
+			_ = existingFile.Close()
 			return false, fileSize, "", err
 		}
-		existingFile.Close()
+		_ = existingFile.Close()
 	}
 
 	mw := io.MultiWriter(outFile, hasher)
@@ -443,7 +443,7 @@ func handleReceiveSession(
 			if _, err := io.ReadFull(stream, buf[:length]); err != nil {
 				return false, fileSize, "", err
 			}
-			mw.Write(buf[:length])
+			_, _ = mw.Write(buf[:length])
 			totalRecv += int64(length)
 
 			// Telemetry
@@ -470,12 +470,12 @@ func handleReceiveSession(
 	}
 
 	if c, ok := stream.(io.Closer); ok {
-		c.Close()
+		_ = c.Close()
 	}
 	// Don't send 100% progress yet — text/file handling below needs to
 	// run before the TUI quits (ProgressMsg with ratio>=1.0 triggers tea.Quit)
 
-	outFile.Close()
+	_ = outFile.Close()
 
 	finalPath := filepath.Join(outputDir, safeName)
 	if meta.Hash != "" {
@@ -532,7 +532,7 @@ func handleReceiveSession(
 		}
 
 		// No hash provided, move file without verification
-		os.Rename(partialPath, finalPath)
+		_ = os.Rename(partialPath, finalPath)
 		sendMsg(ui.StatusMsg("Integrity Check: SKIPPED (No hash provided)"))
 		sendMsg(ui.ProgressMsg{SentBytes: meta.Size, TotalBytes: meta.Size})
 	}
@@ -548,13 +548,13 @@ func handleReceiveSession(
 			if err != nil {
 				return true, fileSize, fileHash, err // Return true because transfer succeeded, unzip failed
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			gzr, err := gzip.NewReader(f)
 			if err != nil {
 				return true, fileSize, fileHash, err
 			}
-			defer gzr.Close()
+			defer func() { _ = gzr.Close() }()
 
 			tr := tar.NewReader(gzr)
 
@@ -584,10 +584,10 @@ func handleReceiveSession(
 						return true, fileSize, fileHash, err
 					}
 					if _, err := io.Copy(f, tr); err != nil {
-						f.Close()
+						_ = f.Close()
 						return true, fileSize, fileHash, err
 					}
-					f.Close()
+					_ = f.Close()
 				}
 			}
 			sendMsg(ui.StatusMsg("Extracted successfully!"))
@@ -599,7 +599,7 @@ func handleReceiveSession(
 			if err != nil {
 				return true, fileSize, fileHash, err
 			}
-			defer zr.Close()
+			defer func() { _ = zr.Close() }()
 
 			for _, f := range zr.File {
 				fpath := filepath.Join(outputDir, f.Name)
@@ -610,7 +610,7 @@ func handleReceiveSession(
 				}
 
 				if f.FileInfo().IsDir() {
-					os.MkdirAll(fpath, os.ModePerm)
+					_ = os.MkdirAll(fpath, os.ModePerm)
 					continue
 				}
 
@@ -625,13 +625,13 @@ func handleReceiveSession(
 
 				rc, err := f.Open()
 				if err != nil {
-					outFile.Close()
+					_ = outFile.Close()
 					return true, fileSize, fileHash, err
 				}
 
 				_, err = io.Copy(outFile, rc)
-				outFile.Close()
-				rc.Close()
+				_ = outFile.Close()
+				_ = rc.Close()
 				if err != nil {
 					return true, fileSize, fileHash, err
 				}

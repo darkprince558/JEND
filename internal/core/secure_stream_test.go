@@ -54,7 +54,7 @@ func TestSecureStream(t *testing.T) {
 
 	// 7. Test Large Data (Multiple Frames)
 	largeMsg := make([]byte, 20000) // Larger than potential frame limits if we had them, testing buffer logic
-	rand.Read(largeMsg)
+	_, _ = rand.Read(largeMsg)
 
 	// Write in one go
 	_, err = writer.Write(largeMsg)

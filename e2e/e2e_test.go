@@ -29,15 +29,15 @@ func TestMain(m *testing.M) {
 	}
 
 	// 2. Setup Test Environment if needed
-	os.MkdirAll("test_data", 0755)
+	os.MkdirAll("test_data", 0755) //nolint:errcheck
 
 	// 3. Run Tests
 	code := m.Run()
 
 	// 4. Cleanup
-	os.RemoveAll("test_data")
-	os.RemoveAll("output")
-	os.Remove(binaryPath)
+	os.RemoveAll("test_data") //nolint:errcheck
+	os.RemoveAll("output")    //nolint:errcheck
+	os.Remove(binaryPath)     //nolint:errcheck
 
 	os.Exit(code)
 }
@@ -51,7 +51,7 @@ func getFreePort() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer l.Close()
+	defer l.Close() //nolint:errcheck
 	return fmt.Sprintf("%d", l.Addr().(*net.TCPAddr).Port), nil
 }
 
@@ -63,7 +63,7 @@ func TestFileTransfer(t *testing.T) {
 		t.Fatalf("Failed to create source file: %v", err)
 	}
 	outDir := "output/file_test"
-	os.RemoveAll(outDir)
+	os.RemoveAll(outDir) //nolint:errcheck
 
 	// Start Sender
 	port, err := getFreePort()
@@ -81,7 +81,7 @@ func TestFileTransfer(t *testing.T) {
 	}
 	defer func() {
 		if senderCmd.Process != nil {
-			senderCmd.Process.Kill()
+			senderCmd.Process.Kill() //nolint:errcheck
 		}
 	}()
 
@@ -126,10 +126,10 @@ func TestFileTransfer(t *testing.T) {
 	// Wait for Sender to finish
 	// Sender loops indefinitely now (Resume Support), so we must kill it.
 	if err := senderCmd.Process.Signal(os.Interrupt); err != nil {
-		senderCmd.Process.Kill()
+		senderCmd.Process.Kill() //nolint:errcheck
 	}
 	// Wait for it to exit after signal
-	senderCmd.Wait()
+	senderCmd.Wait() //nolint:errcheck
 
 	// Verify Content
 	destFile := filepath.Join(outDir, "payload.txt")
@@ -156,9 +156,9 @@ func TestLargeFileTransfer(t *testing.T) {
 	if err := f.Truncate(size); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
-	defer os.Remove(largeFileName)
-	defer os.RemoveAll("received_large")
+	f.Close()                            //nolint:errcheck
+	defer os.Remove(largeFileName)       //nolint:errcheck
+	defer os.RemoveAll("received_large") //nolint:errcheck
 
 	// Same setup as TestFileTransfer
 	// Reuse sender/receiver logic with large file.
@@ -181,7 +181,7 @@ func TestLargeFileTransfer(t *testing.T) {
 	}
 	defer func() {
 		if senderCmd.Process != nil {
-			senderCmd.Process.Kill()
+			senderCmd.Process.Kill() //nolint:errcheck
 		}
 	}()
 
@@ -226,8 +226,8 @@ func TestLargeFileTransfer(t *testing.T) {
 
 	// Kill Sender (it loops)
 	if senderCmd.Process != nil {
-		senderCmd.Process.Signal(os.Interrupt)
-		senderCmd.Wait()
+		senderCmd.Process.Signal(os.Interrupt) //nolint:errcheck
+		senderCmd.Wait()                       //nolint:errcheck
 	}
 }
 
@@ -235,15 +235,15 @@ func TestAuditLog(t *testing.T) {
 	// This test depends on the side effect of TestFileTransfer or runs its own small transfer
 	// Run a small transfer
 	srcFile := "test_data/audit_payload.txt"
-	os.WriteFile(srcFile, []byte("Audit"), 0644)
+	os.WriteFile(srcFile, []byte("Audit"), 0644) //nolint:errcheck
 	outDir := "output/audit_test"
 
 	// Sender
 	port, _ := getFreePort()
 	senderCmd := exec.Command(binaryPath, "send", srcFile, "--headless", "--port", port)
 	senderOut, _ := senderCmd.StdoutPipe()
-	senderCmd.Start()
-	defer senderCmd.Process.Kill()
+	senderCmd.Start()              //nolint:errcheck
+	defer senderCmd.Process.Kill() //nolint:errcheck
 
 	scanner := bufio.NewScanner(senderOut)
 	var code string
@@ -260,12 +260,12 @@ func TestAuditLog(t *testing.T) {
 	}
 
 	// Receiver
-	exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port).Run()
+	exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port).Run() //nolint:errcheck
 
 	// Kill Sender (it loops)
 	if senderCmd.Process != nil {
-		senderCmd.Process.Signal(os.Interrupt)
-		senderCmd.Wait()
+		senderCmd.Process.Signal(os.Interrupt) //nolint:errcheck
+		senderCmd.Wait()                       //nolint:errcheck
 	}
 
 	// Verify Log
@@ -311,7 +311,7 @@ func TestResumeSupport(t *testing.T) {
 		t.Fatalf("Failed to create source file: %v", err)
 	}
 	outDir := "output/resume_test"
-	os.RemoveAll(outDir)
+	os.RemoveAll(outDir) //nolint:errcheck
 
 	// Start Sender
 	port, err := getFreePort()
@@ -328,7 +328,7 @@ func TestResumeSupport(t *testing.T) {
 	}
 	defer func() {
 		if senderCmd.Process != nil {
-			senderCmd.Process.Kill()
+			senderCmd.Process.Kill() //nolint:errcheck
 		}
 	}()
 
@@ -377,7 +377,7 @@ func TestResumeSupport(t *testing.T) {
 		t.Fatal("Partial file not created in time")
 	}
 	time.Sleep(200 * time.Millisecond) // Allow some data to be written
-	receiverCmd1.Process.Kill()
+	receiverCmd1.Process.Kill()        //nolint:errcheck
 	t.Log("Killed Receiver 1 (Simulation)")
 
 	// Verify partial file details
@@ -415,13 +415,13 @@ func TestSenderCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
 	srcFile := filepath.Join(tmpDir, "cancel_test.bin")
 	outDir := filepath.Join(tmpDir, "output")
-	os.MkdirAll(outDir, 0755)
+	os.MkdirAll(outDir, 0755) //nolint:errcheck
 
 	// Create a smaller file (10MB is enough with delay)
 	f, _ := os.Create(srcFile)
-	f.Seek(10*1024*1024, 0) // 10MB
-	f.Write([]byte{0})
-	f.Close()
+	_, _ = f.Seek(10*1024*1024, 0) // 10MB
+	f.Write([]byte{0})             //nolint:errcheck
+	f.Close()                      //nolint:errcheck
 
 	// Build Binary (to ensure we test updated main code)
 	// We assume go run uses updated code.
@@ -443,7 +443,7 @@ func TestSenderCancellation(t *testing.T) {
 	}
 	defer func() {
 		if senderCmd.Process != nil {
-			senderCmd.Process.Kill()
+			senderCmd.Process.Kill() //nolint:errcheck
 		}
 	}()
 
@@ -469,7 +469,7 @@ func TestSenderCancellation(t *testing.T) {
 	}
 	defer func() {
 		if receiverCmd.Process != nil {
-			receiverCmd.Process.Kill()
+			receiverCmd.Process.Kill() //nolint:errcheck
 		}
 	}()
 
@@ -500,7 +500,7 @@ func TestSenderCancellation(t *testing.T) {
 
 	// Wait for Receiver to finish
 	// It should exit. We don't check exit code strictly, but we check stdout.
-	receiverCmd.Wait()
+	receiverCmd.Wait() //nolint:errcheck
 
 	// Check Output for cancellation message
 	recvOutput := receiverStdout.String()
@@ -515,7 +515,7 @@ func TestTextTransfer(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
 	outDir := filepath.Join(tmpDir, "output")
-	os.MkdirAll(outDir, 0755)
+	os.MkdirAll(outDir, 0755) //nolint:errcheck
 
 	textContent := "Hello World from JEND Text Mode!"
 
@@ -537,7 +537,7 @@ func TestTextTransfer(t *testing.T) {
 	}
 	defer func() {
 		if senderCmd.Process != nil {
-			senderCmd.Process.Kill()
+			_ = senderCmd.Process.Kill()
 		}
 	}()
 
@@ -563,7 +563,7 @@ func TestTextTransfer(t *testing.T) {
 	}
 	defer func() {
 		if receiverCmd.Process != nil {
-			receiverCmd.Process.Kill()
+			receiverCmd.Process.Kill() //nolint:errcheck
 		}
 	}()
 
@@ -606,7 +606,7 @@ func TestBinaryFileTransfer(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
 	outDir := filepath.Join(tmpDir, "output")
-	os.MkdirAll(outDir, 0755)
+	os.MkdirAll(outDir, 0755) //nolint:errcheck
 
 	// Create a binary file (mixture of ranges)
 	srcFile := filepath.Join(tmpDir, "binary.dat")
@@ -640,7 +640,7 @@ func TestBinaryFileTransfer(t *testing.T) {
 	// Ensure we kill the sender eventually
 	defer func() {
 		if senderCmd.Process != nil {
-			senderCmd.Process.Kill()
+			_ = senderCmd.Process.Kill()
 		}
 	}()
 
@@ -663,8 +663,8 @@ func TestBinaryFileTransfer(t *testing.T) {
 	}
 
 	// Explicitly kill sender now that receiver is done (since sender loops)
-	senderCmd.Process.Signal(os.Interrupt)
-	senderCmd.Wait()
+	senderCmd.Process.Signal(os.Interrupt) //nolint:errcheck
+	senderCmd.Wait()                       //nolint:errcheck
 
 	// Verify Content
 	destFile := filepath.Join(outDir, "binary.dat")
@@ -682,7 +682,7 @@ func TestMP4Transfer(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
 	outDir := filepath.Join(tmpDir, "output")
-	os.MkdirAll(outDir, 0755)
+	os.MkdirAll(outDir, 0755) //nolint:errcheck
 
 	// Download a real MP4 file
 	// Using a reliable sample URL (Big Buck Bunny, ~1-2MB)
@@ -726,7 +726,7 @@ func TestMP4Transfer(t *testing.T) {
 	}
 	defer func() {
 		if senderCmd.Process != nil {
-			senderCmd.Process.Kill()
+			_ = senderCmd.Process.Kill()
 		}
 	}()
 
@@ -749,8 +749,8 @@ func TestMP4Transfer(t *testing.T) {
 	}
 
 	// Kill Sender
-	senderCmd.Process.Signal(os.Interrupt)
-	senderCmd.Wait()
+	senderCmd.Process.Signal(os.Interrupt) //nolint:errcheck
+	senderCmd.Wait()                       //nolint:errcheck
 
 	// Verify Content
 	destFile := filepath.Join(outDir, "sample.mp4")
@@ -768,7 +768,7 @@ func TestNoClipboard(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
 	outDir := filepath.Join(tmpDir, "output")
-	os.MkdirAll(outDir, 0755)
+	os.MkdirAll(outDir, 0755) //nolint:errcheck
 
 	textContent := "Sensitive Data - Do Not Copy"
 
@@ -790,7 +790,7 @@ func TestNoClipboard(t *testing.T) {
 	}
 	defer func() {
 		if senderCmd.Process != nil {
-			senderCmd.Process.Kill()
+			_ = senderCmd.Process.Kill()
 		}
 	}()
 
@@ -852,7 +852,7 @@ func TestNoHistory(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
 	outDir := filepath.Join(tmpDir, "output")
-	os.MkdirAll(outDir, 0755)
+	_ = os.MkdirAll(outDir, 0755)
 
 	textContent := "Ghost Transfer"
 
@@ -887,7 +887,7 @@ func TestNoHistory(t *testing.T) {
 	}
 	defer func() {
 		if senderCmd.Process != nil {
-			senderCmd.Process.Kill()
+			_ = senderCmd.Process.Kill()
 		}
 	}()
 

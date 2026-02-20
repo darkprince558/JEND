@@ -37,6 +37,7 @@ type CustomTurnConfig struct {
 // If custom config is provided, it uses that instead.
 func NewICEAgent(ctx context.Context, isControlling bool, customTurn *CustomTurnConfig) (*ice.Agent, error) {
 	// 1. Configure ICE Servers
+	//nolint:staticcheck // ice/v2 requires ice.URL which is deprecated
 	urls := []*ice.URL{}
 
 	// STUN
@@ -66,7 +67,7 @@ func NewICEAgent(ctx context.Context, isControlling bool, customTurn *CustomTurn
 		if err != nil {
 			fmt.Printf("Warning: Failed to fetch TURN credentials: %v\n", err)
 		} else {
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck
 			var creds TurnCredentials
 			if err := json.NewDecoder(resp.Body).Decode(&creds); err == nil {
 				for _, uri := range creds.URIs {

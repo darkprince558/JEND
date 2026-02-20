@@ -14,25 +14,25 @@ func TestCompressPath_Zip(t *testing.T) {
 	// 1. Setup Test Dir
 	srcDir := t.TempDir()
 	file1 := filepath.Join(srcDir, "file1.txt")
-	os.WriteFile(file1, []byte("content1"), 0644)
+	_ = os.WriteFile(file1, []byte("content1"), 0644)
 	subDir := filepath.Join(srcDir, "subdir")
-	os.Mkdir(subDir, 0755)
+	_ = os.Mkdir(subDir, 0755)
 	file2 := filepath.Join(subDir, "file2.txt")
-	os.WriteFile(file2, []byte("content2"), 0644)
+	_ = os.WriteFile(file2, []byte("content2"), 0644)
 
 	// 2. Compress
 	zipPath, err := CompressPath(srcDir, "zip")
 	if err != nil {
 		t.Fatalf("CompressPath failed: %v", err)
 	}
-	defer os.Remove(zipPath)
+	defer func() { _ = os.Remove(zipPath) }()
 
 	// 3. Verify Zip
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		t.Fatalf("Failed to open zip: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	foundCounts := 0
 	for _, f := range r.File {
@@ -58,27 +58,27 @@ func TestCompressPath_TarGz(t *testing.T) {
 	// 1. Setup Test Dir
 	srcDir := t.TempDir()
 	file1 := filepath.Join(srcDir, "file1.txt")
-	os.WriteFile(file1, []byte("content1"), 0644)
+	_ = os.WriteFile(file1, []byte("content1"), 0644)
 
 	// 2. Compress
 	tarPath, err := CompressPath(srcDir, "tar.gz")
 	if err != nil {
 		t.Fatalf("CompressPath failed: %v", err)
 	}
-	defer os.Remove(tarPath)
+	defer func() { _ = os.Remove(tarPath) }()
 
 	// 3. Verify TarGz
 	f, err := os.Open(tarPath)
 	if err != nil {
 		t.Fatalf("Failed to open tar.gz: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gzr, err := gzip.NewReader(f)
 	if err != nil {
 		t.Fatalf("Failed to create gzip reader: %v", err)
 	}
-	defer gzr.Close()
+	defer func() { _ = gzr.Close() }()
 
 	tr := tar.NewReader(gzr)
 	found := false

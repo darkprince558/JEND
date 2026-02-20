@@ -28,7 +28,7 @@ func main() {
 			fmt.Printf("TCP Connection Failed: %v\n", err)
 			os.Exit(1)
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 		fmt.Println("TCP Connection Successful! (Coturn is listening)")
 		return
 	}
@@ -45,7 +45,7 @@ func main() {
 		fmt.Printf("Error listening: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	// STUN Binding Request
 	req := []byte{
@@ -61,7 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 	buffer := make([]byte, 1024)
 	n, _, err := conn.ReadFromUDP(buffer)
 	if err != nil {

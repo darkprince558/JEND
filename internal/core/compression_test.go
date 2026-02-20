@@ -33,19 +33,19 @@ func TestCompressPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompressPath(tar.gz) failed: %v", err)
 	}
-	defer os.Remove(tarPath)
+	defer os.Remove(tarPath) //nolint:errcheck
 
 	// Verify Tar integrity
 	f, err := os.Open(tarPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	gzr, err := gzip.NewReader(f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gzr.Close()
+	defer gzr.Close() //nolint:errcheck
 	tr := tar.NewReader(gzr)
 
 	foundFile1 := false
@@ -80,14 +80,14 @@ func TestCompressPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompressPath(zip) failed: %v", err)
 	}
-	defer os.Remove(zipPath)
+	defer func() { _ = os.Remove(zipPath) }()
 
 	// Verify Zip Integrity
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer zr.Close()
+	defer zr.Close() //nolint:errcheck
 
 	foundFile1 = false
 	foundFile2 = false

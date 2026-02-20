@@ -73,7 +73,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		}
 
 		if !noHistory {
-			audit.WriteEntry(audit.LogEntry{
+			_ = audit.WriteEntry(audit.LogEntry{
 				Timestamp: startTime,
 				Role:      "sender",
 				Code:      code,
@@ -101,12 +101,12 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
-			defer os.Remove(tmpFile.Name())
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
 			if _, err := tmpFile.WriteString(textContent); err != nil {
 				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
-			tmpFile.Close()
+			_ = tmpFile.Close()
 			filePath = tmpFile.Name()
 		}
 
@@ -209,8 +209,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			}
 			fileName = filepath.Base(filePath) + ".tar.gz"
 			cleanup = func() {
-				fileObj.Close()
-				os.Remove(tempPath)
+				_ = fileObj.Close()
+				_ = os.Remove(tempPath)
 			}
 			info, err = fileObj.Stat()
 			if err != nil {
@@ -235,8 +235,8 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			}
 			fileName = filepath.Base(filePath) + ".zip"
 			cleanup = func() {
-				fileObj.Close()
-				os.Remove(tempPath)
+				_ = fileObj.Close()
+				_ = os.Remove(tempPath)
 			}
 			info, err = fileObj.Stat()
 			if err != nil {
@@ -265,9 +265,9 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			fileName = info.Name()
 			cleanup = func() {
 				if locked {
-					fileLock.Unlock()
+					_ = fileLock.Unlock()
 				}
-				fileObj.Close()
+				_ = fileObj.Close()
 			}
 		}
 		file = fileObj
@@ -280,7 +280,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 	// Create MultiListener to handle Direct + P2P
 	multiListener := transport.NewMultiListener()
-	defer multiListener.Close()
+	defer func() { _ = multiListener.Close() }()
 
 	// 1. Direct Listener
 	directListener, err := tr.Listen(port)
@@ -293,7 +293,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 	// Start Advertising
 	portInt := 9000
-	fmt.Sscanf(port, "%d", &portInt)
+	_, _ = fmt.Sscanf(port, "%d", &portInt)
 	stopAdvertising, err := discovery.StartAdvertising(portInt, code)
 	if err != nil {
 		sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to advertise on local network: %v", err), Level: ui.LevelWarning})
@@ -303,7 +303,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 		regClient := discovery.NewRegistryClient()
 		portInt, _ := strconv.Atoi(port)
-		regClient.Register(code, "", portInt, nil)
+		_ = regClient.Register(code, "", portInt, nil)
 	}
 
 	// Start Signaling (MQTT)
@@ -394,7 +394,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 				defer wg.Done()
 				defer func() {
 					if c, ok := s.(io.Closer); ok {
-						c.Close()
+						_ = c.Close()
 					}
 				}()
 
@@ -485,7 +485,7 @@ func handleConnection(
 	if err := protocol.EncodeHeader(stream, protocol.TypeHandshake, uint32(len(metaBytes))); err != nil {
 		return false, err
 	}
-	stream.Write(metaBytes)
+	_, _ = stream.Write(metaBytes)
 
 	// Wait for Ack OR Range Request
 	sendMsg(ui.StatusMsg("Handshake sent. Waiting for response..."))
@@ -557,7 +557,7 @@ func handleConnection(
 	for {
 		select {
 		case <-ctx.Done():
-			protocol.EncodeHeader(stream, protocol.TypeCancel, 0)
+			_ = protocol.EncodeHeader(stream, protocol.TypeCancel, 0)
 			return false, ctx.Err()
 		default:
 		}
@@ -639,7 +639,7 @@ func CompressPath(filePath string, format string) (string, error) {
 				if err != nil {
 					return err
 				}
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 				if _, err := io.Copy(tw, f); err != nil {
 					return err
 				}
@@ -647,12 +647,12 @@ func CompressPath(filePath string, format string) (string, error) {
 			return nil
 		})
 
-		tw.Close()
-		gw.Close()
-		tempFile.Close()
+		_ = tw.Close()
+		_ = gw.Close()
+		_ = tempFile.Close()
 
 		if err != nil {
-			os.Remove(tempFile.Name())
+			_ = os.Remove(tempFile.Name())
 			return "", err
 		}
 		return tempFile.Name(), nil
@@ -699,7 +699,7 @@ func CompressPath(filePath string, format string) (string, error) {
 				if err != nil {
 					return err
 				}
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 				if _, err := io.Copy(writer, f); err != nil {
 					return err
 				}
@@ -707,11 +707,11 @@ func CompressPath(filePath string, format string) (string, error) {
 			return nil
 		})
 
-		zw.Close()
-		tempFile.Close()
+		_ = zw.Close()
+		_ = tempFile.Close()
 
 		if err != nil {
-			os.Remove(tempFile.Name())
+			_ = os.Remove(tempFile.Name())
 			return "", err
 		}
 		return tempFile.Name(), nil

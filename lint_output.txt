@@ -1,166 +1,152 @@
-e2e/e2e_test.go:32:13: Error return value of `os.MkdirAll` is not checked (errcheck)
-	os.MkdirAll("test_data", 0755)
-	           ^
-e2e/e2e_test.go:38:14: Error return value of `os.RemoveAll` is not checked (errcheck)
-	os.RemoveAll("test_data")
-	            ^
-e2e/e2e_test.go:39:14: Error return value of `os.RemoveAll` is not checked (errcheck)
-	os.RemoveAll("output")
-	            ^
-e2e/e2e_test.go:40:11: Error return value of `os.Remove` is not checked (errcheck)
-	os.Remove(binaryPath)
-	         ^
-e2e/e2e_test.go:54:15: Error return value of `l.Close` is not checked (errcheck)
-	defer l.Close()
+cmd/jend/send.go:153:21: Error return value of `clipboard.WriteAll` is not checked (errcheck)
+		clipboard.WriteAll(code) // Ignore error, just try best effort //nolint:errcheck
+		                  ^
+cmd/jend/update.go:221:15: Error return value of `f.Close` is not checked (errcheck)
+	defer f.Close()
 	             ^
-e2e/e2e_test.go:66:14: Error return value of `os.RemoveAll` is not checked (errcheck)
-	os.RemoveAll(outDir)
-	            ^
-e2e/e2e_test.go:84:26: Error return value of `senderCmd.Process.Kill` is not checked (errcheck)
-			senderCmd.Process.Kill()
-			                      ^
-e2e/e2e_test.go:129:25: Error return value of `senderCmd.Process.Kill` is not checked (errcheck)
-		senderCmd.Process.Kill()
-		                      ^
-e2e/e2e_test.go:132:16: Error return value of `senderCmd.Wait` is not checked (errcheck)
-	senderCmd.Wait()
-	              ^
-e2e/e2e_test.go:160:17: Error return value of `os.Remove` is not checked (errcheck)
-	defer os.Remove(largeFileName)
-	               ^
-e2e/e2e_test.go:184:26: Error return value of `senderCmd.Process.Kill` is not checked (errcheck)
-			senderCmd.Process.Kill()
-			                      ^
-e2e/e2e_test.go:229:27: Error return value of `senderCmd.Process.Signal` is not checked (errcheck)
-		senderCmd.Process.Signal(os.Interrupt)
-		                        ^
-e2e/e2e_test.go:230:17: Error return value of `senderCmd.Wait` is not checked (errcheck)
-		senderCmd.Wait()
-		              ^
-e2e/e2e_test.go:238:14: Error return value of `os.WriteFile` is not checked (errcheck)
-	os.WriteFile(srcFile, []byte("Audit"), 0644)
-	            ^
-e2e/e2e_test.go:245:17: Error return value of `senderCmd.Start` is not checked (errcheck)
-	senderCmd.Start()
-	               ^
-e2e/e2e_test.go:263:94: Error return value of `(*os/exec.Cmd).Run` is not checked (errcheck)
-	exec.Command(binaryPath, "receive", code, "--dir", outDir, "--headless", "--port", port).Run()
-	                                                                                            ^
-e2e/e2e_test.go:267:27: Error return value of `senderCmd.Process.Signal` is not checked (errcheck)
-		senderCmd.Process.Signal(os.Interrupt)
-		                        ^
-e2e/e2e_test.go:268:17: Error return value of `senderCmd.Wait` is not checked (errcheck)
-		senderCmd.Wait()
-		              ^
-e2e/e2e_test.go:380:27: Error return value of `receiverCmd1.Process.Kill` is not checked (errcheck)
-	receiverCmd1.Process.Kill()
-	                         ^
-e2e/e2e_test.go:418:13: Error return value of `os.MkdirAll` is not checked (errcheck)
-	os.MkdirAll(outDir, 0755)
-	           ^
+cmd/jend/update.go:247:14: Error return value of `os.Remove` is not checked (errcheck)
+				os.Remove(tmp.Name())
+				         ^
+cmd/jend/update.go:252:14: Error return value of `os.Remove` is not checked (errcheck)
+				os.Remove(tmp.Name())
+				         ^
+cmd/jend/update.go:282:14: Error return value of `tmp.Close` is not checked (errcheck)
+				tmp.Close()
+				         ^
+cmd/jend/update.go:283:14: Error return value of `os.Remove` is not checked (errcheck)
+				os.Remove(tmp.Name())
+				         ^
+cmd/jend/update.go:286:13: Error return value of `tmp.Close` is not checked (errcheck)
+			tmp.Close()
+			         ^
 e2e/e2e_test.go:422:8: Error return value of `f.Seek` is not checked (errcheck)
-	f.Seek(10*1024*1024, 0) // 10MB
+	f.Seek(10*1024*1024, 0) // 10MB //nolint:errcheck
 	      ^
-e2e/e2e_test.go:423:9: Error return value of `f.Write` is not checked (errcheck)
-	f.Write([]byte{0})
-	       ^
-e2e/e2e_test.go:472:28: Error return value of `receiverCmd.Process.Kill` is not checked (errcheck)
-			receiverCmd.Process.Kill()
-			                        ^
-e2e/e2e_test.go:503:18: Error return value of `receiverCmd.Wait` is not checked (errcheck)
-	receiverCmd.Wait()
-	                ^
-e2e/e2e_test.go:518:13: Error return value of `os.MkdirAll` is not checked (errcheck)
+e2e/e2e_test.go:540:26: Error return value of `senderCmd.Process.Kill` is not checked (errcheck)
+			senderCmd.Process.Kill()
+			                      ^
+e2e/e2e_test.go:643:26: Error return value of `senderCmd.Process.Kill` is not checked (errcheck)
+			senderCmd.Process.Kill()
+			                      ^
+e2e/e2e_test.go:729:26: Error return value of `senderCmd.Process.Kill` is not checked (errcheck)
+			senderCmd.Process.Kill()
+			                      ^
+e2e/e2e_test.go:855:13: Error return value of `os.MkdirAll` is not checked (errcheck)
 	os.MkdirAll(outDir, 0755)
 	           ^
-e2e/e2e_test.go:566:28: Error return value of `receiverCmd.Process.Kill` is not checked (errcheck)
-			receiverCmd.Process.Kill()
-			                        ^
-e2e/e2e_test.go:666:26: Error return value of `senderCmd.Process.Signal` is not checked (errcheck)
-	senderCmd.Process.Signal(os.Interrupt)
-	                        ^
-e2e/resilience_test.go:26:17: Error return value of `pc1.Close` is not checked (errcheck)
-	defer pc1.Close()
-	               ^
-e2e/resilience_test.go:32:17: Error return value of `pc2.Close` is not checked (errcheck)
-	defer pc2.Close()
-	               ^
-e2e/resilience_test.go:45:16: Error return value of `ln.Close` is not checked (errcheck)
-	defer ln.Close()
-	              ^
-e2e/resilience_test.go:76:16: Error return value of `stream.Write` is not checked (errcheck)
-			stream.Write(buf[:n])
-			            ^
-e2e/resilience_test.go:110:14: Error return value of `stream.Close` is not checked (errcheck)
-	stream.Close()
+internal/core/receiver.go:414:22: Error return value of `existingFile.Close` is not checked (errcheck)
+			existingFile.Close()
+			                  ^
+internal/core/receiver.go:417:21: Error return value of `existingFile.Close` is not checked (errcheck)
+		existingFile.Close()
+		                  ^
+internal/core/receiver.go:446:12: Error return value of `mw.Write` is not checked (errcheck)
+			mw.Write(buf[:length])
+			        ^
+internal/core/receiver.go:473:10: Error return value of `c.Close` is not checked (errcheck)
+		c.Close()
+		       ^
+internal/core/receiver.go:478:15: Error return value of `outFile.Close` is not checked (errcheck)
+	outFile.Close()
+	             ^
+internal/core/receiver.go:535:12: Error return value of `os.Rename` is not checked (errcheck)
+		os.Rename(partialPath, finalPath)
+		         ^
+internal/core/receiver.go:551:17: Error return value of `f.Close` is not checked (errcheck)
+			defer f.Close()
+			             ^
+internal/core/receiver.go:557:19: Error return value of `gzr.Close` is not checked (errcheck)
+			defer gzr.Close()
+			               ^
+internal/core/receiver.go:587:14: Error return value of `f.Close` is not checked (errcheck)
+						f.Close()
+						       ^
+internal/core/receiver.go:602:18: Error return value of `zr.Close` is not checked (errcheck)
+			defer zr.Close()
+			              ^
+internal/core/receiver.go:613:17: Error return value of `os.MkdirAll` is not checked (errcheck)
+					os.MkdirAll(fpath, os.ModePerm)
+					           ^
+internal/core/receiver.go:628:19: Error return value of `outFile.Close` is not checked (errcheck)
+					outFile.Close()
+					             ^
+internal/core/receiver.go:633:18: Error return value of `outFile.Close` is not checked (errcheck)
+				outFile.Close()
+				             ^
+internal/core/receiver.go:634:13: Error return value of `rc.Close` is not checked (errcheck)
+				rc.Close()
+				        ^
+internal/core/receiver_parallel.go:100:18: Error return value of `ns.Close` is not checked (errcheck)
+			defer ns.Close()
+			              ^
+internal/core/receiver_parallel.go:120:12: Error return value of `io.CopyN` is not checked (errcheck)
+			io.CopyN(io.Discard, secureStream, int64(l))
+			        ^
+internal/core/receiver_parallel.go:211:11: Error return value of `os.Rename` is not checked (errcheck)
+	os.Rename(parallelPath, finalPath)
+	         ^
+internal/core/receiver_parallel.go:268:14: Error return value of `os.WriteFile` is not checked (errcheck)
+	os.WriteFile(path, data, 0644)
 	            ^
-e2e/resilience_test.go:121:17: Error return value of `pc1.Close` is not checked (errcheck)
-	defer pc1.Close()
-	               ^
-e2e/resilience_test.go:127:17: Error return value of `pc2.Close` is not checked (errcheck)
-	defer pc2.Close()
-	               ^
-e2e/resilience_test.go:140:16: Error return value of `ln.Close` is not checked (errcheck)
-	defer ln.Close()
+internal/core/receiver_parallel.go:277:16: Error return value of `json.Unmarshal` is not checked (errcheck)
+	json.Unmarshal(data, &state)
 	              ^
-internal/audit/audit.go:86:23: Error return value of `fileLock.Unlock` is not checked (errcheck)
-	defer fileLock.Unlock()
-	                     ^
-internal/audit/audit.go:110:23: Error return value of `fileLock.Unlock` is not checked (errcheck)
-	defer fileLock.Unlock()
-	                     ^
-internal/audit/audit.go:223:15: Error return value of `f.Close` is not checked (errcheck)
-	defer f.Close()
-	             ^
-internal/audit/audit.go:248:15: Error return value of `f.Close` is not checked (errcheck)
-	defer f.Close()
-	             ^
-internal/audit/audit.go:269:15: Error return value of `f.Close` is not checked (errcheck)
-	defer f.Close()
-	             ^
+internal/core/receiver_resumption_test.go:14:20: Error return value of `os.RemoveAll` is not checked (errcheck)
+	defer os.RemoveAll(tmpDir)
+	                  ^
+internal/core/secure_stream_test.go:57:11: Error return value of `rand.Read` is not checked (errcheck)
+	rand.Read(largeMsg)
+	         ^
+internal/core/sender.go:76:20: Error return value of `audit.WriteEntry` is not checked (errcheck)
+			audit.WriteEntry(audit.LogEntry{
+			                ^
+internal/core/sender.go:109:17: Error return value of `tmpFile.Close` is not checked (errcheck)
+			tmpFile.Close()
+			             ^
+internal/core/sender.go:212:18: Error return value of `fileObj.Close` is not checked (errcheck)
+				fileObj.Close()
+				             ^
+internal/core/sender.go:238:18: Error return value of `fileObj.Close` is not checked (errcheck)
+				fileObj.Close()
+				             ^
+internal/core/sender.go:268:21: Error return value of `fileLock.Unlock` is not checked (errcheck)
+					fileLock.Unlock()
+					               ^
+internal/core/sender.go:270:18: Error return value of `fileObj.Close` is not checked (errcheck)
+				fileObj.Close()
+				             ^
+internal/core/sender.go:283:27: Error return value of `multiListener.Close` is not checked (errcheck)
+	defer multiListener.Close()
+	                         ^
+internal/core/sender.go:296:12: Error return value of `fmt.Sscanf` is not checked (errcheck)
+	fmt.Sscanf(port, "%d", &portInt)
+	          ^
+internal/core/sender.go:306:21: Error return value of `regClient.Register` is not checked (errcheck)
+		regClient.Register(code, "", portInt, nil)
+		                  ^
+internal/core/sender.go:397:14: Error return value of `c.Close` is not checked (errcheck)
+						c.Close()
+						       ^
+internal/core/sender.go:488:14: Error return value of `stream.Write` is not checked (errcheck)
+	stream.Write(metaBytes)
+	            ^
+internal/core/sender.go:560:25: Error return value of `protocol.EncodeHeader` is not checked (errcheck)
+			protocol.EncodeHeader(stream, protocol.TypeCancel, 0)
+			                     ^
+internal/core/sender.go:650:11: Error return value of `tw.Close` is not checked (errcheck)
+		tw.Close()
+		        ^
+internal/core/sender.go:651:11: Error return value of `gw.Close` is not checked (errcheck)
+		gw.Close()
+		        ^
 internal/discovery/client.go:60:23: Error return value of `resp.Body.Close` is not checked (errcheck)
 	defer resp.Body.Close()
 	                     ^
 internal/discovery/client.go:77:23: Error return value of `resp.Body.Close` is not checked (errcheck)
 	defer resp.Body.Close()
 	                     ^
-internal/discovery/discovery_test.go:21:29: Error return value of `(*encoding/json.Encoder).Encode` is not checked (errcheck)
-			json.NewEncoder(w).Encode(mockItem)
-			                         ^
 internal/discovery/discovery_test.go:63:12: Error return value of `w.Write` is not checked (errcheck)
 				w.Write([]byte("database error"))
 				       ^
-internal/transfer/s3.go:98:12: Error return value of `os.Remove` is not checked (errcheck)
-		os.Remove(outputPath) // Cleanup
-		         ^
-tools/check_stun/check_stun.go:28:18: Error return value of `conn.Close` is not checked (errcheck)
-	defer conn.Close()
-	                ^
-tools/check_stun/check_stun.go:49:22: Error return value of `conn.SetReadDeadline` is not checked (errcheck)
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	                    ^
-tools/check_turn/check_turn.go:31:19: Error return value of `conn.Close` is not checked (errcheck)
-		defer conn.Close()
-		                ^
-tools/check_turn/check_turn.go:48:18: Error return value of `conn.Close` is not checked (errcheck)
-	defer conn.Close()
-	                ^
-tools/check_turn/check_turn.go:64:22: Error return value of `conn.SetReadDeadline` is not checked (errcheck)
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	                    ^
-internal/audit/audit.go:342:3: ineffectual assignment to roleStr (ineffassign)
-		roleStr := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(role)
-		^
-internal/audit/audit_test.go:66:6: SA4017: HasPrefix doesn't have side effects and its return value is ignored (staticcheck)
-	if !strings.HasPrefix(entries[0].ID, "p-") {
-	    ^
-internal/audit/audit_test.go:78:2: SA9003: empty branch (staticcheck)
-	if err != nil { // LoadHistory returns empty on NotExist, or error?
-	^
-internal/transport/ice.go:40:13: SA1019: ice.URL is deprecated: Please use pion/stun.URI (staticcheck)
-	urls := []*ice.URL{}
-	           ^
-54 issues:
+50 issues:
 * errcheck: 50
-* ineffassign: 1
-* staticcheck: 3

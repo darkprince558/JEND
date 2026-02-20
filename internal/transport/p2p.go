@@ -88,7 +88,7 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (n
 	}
 
 	// 4. OnCandidate: Send to peer
-	agent.OnCandidate(func(c ice.Candidate) {
+	agent.OnCandidate(func(c ice.Candidate) { //nolint:errcheck
 		if c == nil {
 			return
 		}
@@ -132,7 +132,7 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (n
 	// If Offerer, send immediately. If Answerer, wait for Offer.
 	if isOfferer {
 		payload, _ := json.Marshal(initMsg)
-		m.Signaling.Publish(topic, payload)
+		m.Signaling.Publish(topic, payload) //nolint:errcheck
 	}
 
 	// 7. Wait for Remote Credentials
@@ -146,7 +146,7 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (n
 		if !isOfferer {
 			// Answerer: Now send our credentials
 			payload, _ := json.Marshal(initMsg)
-			m.Signaling.Publish(topic, payload)
+			m.Signaling.Publish(topic, payload) //nolint:errcheck
 		}
 		// Set Remote
 		if err := agent.SetRemoteCredentials(u, p); err != nil {
@@ -163,7 +163,7 @@ func (m *P2PManager) EstablishConnection(ctx context.Context, isOfferer bool) (n
 			case c := <-remoteCandidates:
 				candidate, err := ice.UnmarshalCandidate(c)
 				if err == nil {
-					agent.AddRemoteCandidate(candidate)
+					agent.AddRemoteCandidate(candidate) //nolint:errcheck
 				}
 			case <-ctx.Done():
 				return

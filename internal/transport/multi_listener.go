@@ -73,7 +73,7 @@ func (m *MultiListener) Close() error {
 	}
 
 	for _, l := range m.listeners {
-		l.Close()
+		l.Close() //nolint:errcheck
 	}
 	return nil
 }

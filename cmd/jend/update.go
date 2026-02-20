@@ -96,7 +96,7 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		fmt.Println(errStyle.Render("Download failed: " + err.Error()))
 		os.Exit(1)
 	}
-	defer os.Remove(tmpFile)
+	defer os.Remove(tmpFile) //nolint:errcheck
 
 	// 4. Extract the binary
 	binaryPath, err := extractBinary(tmpFile, assetName)
@@ -104,7 +104,7 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		fmt.Println(errStyle.Render("Extract failed: " + err.Error()))
 		os.Exit(1)
 	}
-	defer os.Remove(binaryPath)
+	defer os.Remove(binaryPath) //nolint:errcheck
 
 	// 5. Replace current binary
 	currentBinary, err := os.Executable()
@@ -133,7 +133,7 @@ func fetchLatestRelease() (*ghRelease, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
@@ -186,7 +186,7 @@ func downloadAsset(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -196,11 +196,11 @@ func downloadAsset(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer tmp.Close()
+	defer tmp.Close() //nolint:errcheck
 
 	_, err = io.Copy(tmp, resp.Body)
 	if err != nil {
-		os.Remove(tmp.Name())
+		os.Remove(tmp.Name()) //nolint:errcheck
 		return "", err
 	}
 	return tmp.Name(), nil
@@ -218,13 +218,13 @@ func extractFromTarGz(archivePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return "", err
 	}
-	defer gz.Close()
+	defer gz.Close() //nolint:errcheck
 
 	tr := tar.NewReader(gz)
 	for {
@@ -243,13 +243,13 @@ func extractFromTarGz(archivePath string) (string, error) {
 				return "", err
 			}
 			if _, err := io.Copy(tmp, tr); err != nil {
-				tmp.Close()
-				os.Remove(tmp.Name())
+				tmp.Close() //nolint:errcheck
+				_ = os.Remove(tmp.Name())
 				return "", err
 			}
-			tmp.Close()
+			tmp.Close() //nolint:errcheck
 			if err := os.Chmod(tmp.Name(), 0755); err != nil {
-				os.Remove(tmp.Name())
+				_ = os.Remove(tmp.Name())
 				return "", err
 			}
 			return tmp.Name(), nil
@@ -263,7 +263,7 @@ func extractFromZip(archivePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer r.Close()
+	defer r.Close() //nolint:errcheck
 
 	for _, f := range r.File {
 		name := filepath.Base(f.Name)
@@ -272,20 +272,20 @@ func extractFromZip(archivePath string) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			defer rc.Close()
+			defer rc.Close() //nolint:errcheck
 
 			tmp, err := os.CreateTemp("", "jend-bin-*")
 			if err != nil {
 				return "", err
 			}
 			if _, err := io.Copy(tmp, rc); err != nil {
-				tmp.Close()
-				os.Remove(tmp.Name())
+				_ = tmp.Close()
+				_ = os.Remove(tmp.Name())
 				return "", err
 			}
-			tmp.Close()
+			_ = tmp.Close()
 			if err := os.Chmod(tmp.Name(), 0755); err != nil {
-				os.Remove(tmp.Name())
+				_ = os.Remove(tmp.Name())
 				return "", err
 			}
 			return tmp.Name(), nil
@@ -305,28 +305,28 @@ func replaceBinary(currentPath, newPath string) error {
 	src, err := os.Open(newPath)
 	if err != nil {
 		// Restore backup
-		os.Rename(backupPath, currentPath)
+		os.Rename(backupPath, currentPath) //nolint:errcheck
 		return fmt.Errorf("cannot open new binary: %w", err)
 	}
-	defer src.Close()
+	defer src.Close() //nolint:errcheck
 
 	dst, err := os.OpenFile(currentPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
 		// Restore backup
-		os.Rename(backupPath, currentPath)
+		os.Rename(backupPath, currentPath) //nolint:errcheck
 		return fmt.Errorf("cannot write binary: %w", err)
 	}
-	defer dst.Close()
+	defer dst.Close() //nolint:errcheck
 
 	if _, err := io.Copy(dst, src); err != nil {
-		dst.Close()
+		dst.Close() //nolint:errcheck
 		// Restore backup
-		os.Remove(currentPath)
-		os.Rename(backupPath, currentPath)
+		_ = os.Remove(currentPath)
+		os.Rename(backupPath, currentPath) //nolint:errcheck
 		return fmt.Errorf("copy failed: %w", err)
 	}
 
 	// Remove backup
-	os.Remove(backupPath)
+	_ = os.Remove(backupPath)
 	return nil
 }

@@ -56,7 +56,7 @@ func downloadParallel(
 	if err != nil {
 		return false, meta.Size, "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := f.Truncate(meta.Size); err != nil {
 		return false, meta.Size, "", fmt.Errorf("failed to pre-allocate file: %w", err)
@@ -97,7 +97,7 @@ func downloadParallel(
 				errChan <- err
 				return
 			}
-			defer ns.Close()
+			defer func() { _ = ns.Close() }()
 
 			key, err := PerformPAKE(ns, password, 1)
 			if err != nil {
@@ -117,7 +117,7 @@ func downloadParallel(
 				errChan <- err
 				return
 			}
-			io.CopyN(io.Discard, secureStream, int64(l))
+			_, _ = io.CopyN(io.Discard, secureStream, int64(l))
 
 			if err := protocol.EncodeHeader(secureStream, protocol.TypeRangeReq, 16); err != nil {
 				errChan <- err
@@ -208,8 +208,8 @@ func downloadParallel(
 		return false, meta.Size, "", <-errChan
 	}
 
-	os.Rename(parallelPath, finalPath)
-	os.Remove(metaPath)
+	_ = os.Rename(parallelPath, finalPath)
+	_ = os.Remove(metaPath)
 
 	sendMsg(ui.StatusMsg("Parallel Download Complete!"))
 	return true, meta.Size, meta.Hash, nil
@@ -265,7 +265,7 @@ func loadOrInitState(metaPath string, totalSize int64, chunks int) (*DownloadSta
 
 func saveState(path string, state *DownloadState) {
 	data, _ := json.Marshal(state)
-	os.WriteFile(path, data, 0644)
+	_ = os.WriteFile(path, data, 0644)
 }
 
 func markChunkDone(path string, id int) {
@@ -274,7 +274,7 @@ func markChunkDone(path string, id int) {
 		return
 	}
 	var state DownloadState
-	json.Unmarshal(data, &state)
+	_ = json.Unmarshal(data, &state)
 	if id < len(state.Chunks) {
 		state.Chunks[id].Done = true
 		saveState(path, &state)

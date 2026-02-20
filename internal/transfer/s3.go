@@ -45,7 +45,7 @@ func UploadToS3(ctx context.Context, filePath string, code string, identityPoolI
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	key := fmt.Sprintf("transfers/%s/%s", code, filepath.Base(filePath))
 
@@ -87,7 +87,7 @@ func DownloadFromS3(ctx context.Context, key string, outputDir string, identityP
 	if err != nil {
 		return "", fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	//nolint:staticcheck // feature/s3/manager is deprecated but we're keeping it for now
 	_, err = downloader.Download(ctx, f, &s3.GetObjectInput{
@@ -95,7 +95,7 @@ func DownloadFromS3(ctx context.Context, key string, outputDir string, identityP
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		os.Remove(outputPath) // Cleanup
+		_ = os.Remove(outputPath) // Cleanup
 		return "", fmt.Errorf("s3 download failed: %w", err)
 	}
 

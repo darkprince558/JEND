@@ -51,7 +51,7 @@ func (c *LossyPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		copy(data, p)
 		go func() {
 			time.Sleep(lat)
-			c.PacketConn.WriteTo(data, addr)
+			c.PacketConn.WriteTo(data, addr) //nolint:errcheck
 		}()
 		return len(p), nil
 	}

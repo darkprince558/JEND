@@ -11,7 +11,7 @@ func TestStatePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	metaPath := filepath.Join(tmpDir, "test.meta")
 	totalSize := int64(1000)

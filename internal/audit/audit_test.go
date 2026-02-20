@@ -64,8 +64,7 @@ func TestAuditLogLifecycle(t *testing.T) {
 	// entries[0] is newest.
 	// ID should be "p-1099"
 	if !strings.HasPrefix(entries[0].ID, "p-") {
-		// It might be "1" if time didn't work out, actually "1" has default time (Now).
-		// The loop adds (Now + i seconds). So "p-1099" is definitely newest.
+		t.Logf("Warning: entries[0] ID does not have p- prefix, got: %s", entries[0].ID)
 	}
 
 	// 5. Test Clear
@@ -75,8 +74,8 @@ func TestAuditLogLifecycle(t *testing.T) {
 
 	// Verify Cleared
 	entries, err = LoadHistory()
-	if err != nil { // LoadHistory returns empty on NotExist, or error?
-		// It returns empty slice on NotExist inside LoadHistory logic.
+	if err != nil {
+		t.Logf("LoadHistory after clear error: %v", err)
 	}
 	if len(entries) != 0 {
 		t.Errorf("History not cleared. Got %d entries", len(entries))

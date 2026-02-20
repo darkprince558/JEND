@@ -16,7 +16,7 @@ func TestQUICConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to listen: %v", err)
 	}
-	defer listener.Close()
+	defer listener.Close() //nolint:errcheck
 
 	done := make(chan struct{})
 
@@ -41,7 +41,7 @@ func TestQUICConnection(t *testing.T) {
 		if string(buf) != "HELLO" {
 			t.Errorf("Expected HELLO, got %s", buf)
 		}
-		stream.Close()
+		stream.Close() //nolint:errcheck
 	}()
 
 	// Dial
@@ -58,7 +58,7 @@ func TestQUICConnection(t *testing.T) {
 	if _, err := stream.Write([]byte("HELLO")); err != nil {
 		t.Fatalf("Write error: %v", err)
 	}
-	stream.Close()
+	stream.Close() //nolint:errcheck
 
 	select {
 	case <-done:

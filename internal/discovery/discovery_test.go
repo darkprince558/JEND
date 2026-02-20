@@ -18,7 +18,7 @@ func TestLookupCloud(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/lookup/test-code-123" {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(mockItem)
+			json.NewEncoder(w).Encode(mockItem) //nolint:errcheck
 			return
 		}
 		if r.URL.Path == "/lookup/missing" {
@@ -60,7 +60,7 @@ func TestRegisterCloud(t *testing.T) {
 			}
 			if item.Code == "bad-code" {
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("database error"))
+				_, _ = w.Write([]byte("database error"))
 				return
 			}
 			w.WriteHeader(http.StatusOK) // or Created
