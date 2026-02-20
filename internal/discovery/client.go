@@ -13,10 +13,6 @@ import (
 	"github.com/darkprince558/jend/internal/config"
 )
 
-const (
-	apiEndpoint = config.DefaultAPIEndpoint
-)
-
 // RegistryClient handles interaction with the global JEND Registry Service.
 type RegistryClient struct {
 	client   *http.Client

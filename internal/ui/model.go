@@ -330,17 +330,20 @@ func (m Model) View() string {
 		headerStyle := ErrorStyle
 		msgColor := ColorError
 
-		if m.ErrLevel == LevelWarning {
+		switch m.ErrLevel {
+		case LevelWarning:
 			headerText = "WARNING"
 			headerStyle = WarningStyle
 			msgColor = ColorWarning
-		} else if m.ErrLevel == LevelInfo {
+		case LevelInfo:
 			headerText = "INFO"
 			headerStyle = InfoStyle
 			msgColor = ColorSecondary
+		case LevelError, LevelFatal:
+			// Default values already set for ERROR and FATAL
 		}
 
-		header := headerStyle.Copy().Padding(1, 4).Render(headerText)
+		header := headerStyle.Padding(1, 4).Render(headerText)
 
 		content := lipgloss.JoinVertical(lipgloss.Center,
 			banner,

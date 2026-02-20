@@ -180,13 +180,14 @@ func (m SendWizardModel) updateStepSource(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case tea.KeyEnter:
 		m.sourceChoice = m.cursor
-		if m.cursor == 0 {
+		switch m.cursor {
+		case 0:
 			// Text input (now first option)
 			m.textEditing = true
 			m.textArea.Reset()
 			m.textArea.Focus()
 			return m, textarea.Blink
-		} else if m.cursor == 1 || m.cursor == 2 {
+		case 1, 2:
 			// File (1) or Folder (2) picker
 			return m, tea.Quit // Will be handled by RunSendWizard
 		}
@@ -437,7 +438,7 @@ func (m SendWizardModel) viewStepSource() string {
 		prefix := " "
 		icon := ">"
 		if i == m.cursor {
-			style = RadioActiveStyle.Copy().Width(maxLen)
+			style = RadioActiveStyle.Width(maxLen)
 			prefix = ">"
 		}
 
@@ -580,9 +581,7 @@ func (m SendWizardModel) viewStepConfirm() string {
 
 			if i == m.confirmCursor {
 				// Highlighted button
-				btnStyle = btnStyle.Copy().
-					Background(ColorAccent).
-					Foreground(ColorBg)
+				btnStyle = btnStyle.Background(ColorAccent).Foreground(ColorBg)
 			}
 
 			// No icon or selection prefix for button
@@ -593,7 +592,7 @@ func (m SendWizardModel) viewStepConfirm() string {
 
 		// Regular item
 		if i == m.confirmCursor {
-			style = RadioActiveStyle.Copy().Width(maxLabel)
+			style = RadioActiveStyle.Width(maxLabel)
 			prefix = ">" // Becomes ">>"
 		}
 
@@ -740,13 +739,6 @@ func (m SendWizardModel) renderToggle(label, desc string, focused, on bool) stri
 	}
 
 	return line + "\n"
-}
-
-func (m SendWizardModel) confirmRow(label, value string) string {
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		ConfirmLabelStyle.Render(label),
-		ConfirmValueStyle.Render(value),
-	)
 }
 
 func (m SendWizardModel) viewStepDots() string {

@@ -179,7 +179,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 					sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("P2P ICE Failed: %v", errIce), Level: ui.LevelWarning})
 				}
 			} else {
-				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Signaling Auth Failed: %v. Using local network only.", errSig), Level: ui.LevelWarning})
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("signaling auth failed: %v. Using local network only", errSig), Level: ui.LevelWarning})
 			}
 		}
 	}
@@ -254,7 +254,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 				sendMsg(ui.DetailedErrorMsg{Err: err, Level: ui.LevelFatal})
 				return
 			}
-			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("transfer interrupted (%v). Retrying...", err), Level: ui.LevelWarning})
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("transfer interrupted (%v). retrying", err), Level: ui.LevelWarning})
 			stream.Close()
 			conn.CloseWithError(0, "interrupted")
 			time.Sleep(time.Second)
@@ -376,14 +376,12 @@ func handleReceiveSession(
 		return false, fileSize, "", err
 	}
 	if err := binary.Write(stream, binary.LittleEndian, offset); err != nil {
-		return false, fileSize, "", err
+		return false, 0, "", fmt.Errorf("handshake failed: %w", err)
 	}
+	sendMsg(ui.StatusMsg("Authenticated! Waiting for transfer info..."))
 
-	sendMsg(ui.StatusMsg("Receiving " + safeName))
-
-	var outFile io.WriteCloser
 	var textBuf *bytes.Buffer
-
+	var outFile io.WriteCloser
 	if meta.Type == "text" {
 		textBuf = new(bytes.Buffer)
 		outFile = &nopCloser{textBuf}
@@ -402,7 +400,7 @@ func handleReceiveSession(
 	defer outFile.Close()
 
 	buf := make([]byte, config.ChunkSize)
-	var totalRecv int64 = offset
+	var totalRecv = offset
 	startTime := time.Now()
 
 	hasher := sha256.New()
@@ -517,7 +515,7 @@ func handleReceiveSession(
 			sendMsg(ui.ProgressMsg{SentBytes: meta.Size, TotalBytes: meta.Size})
 
 		} else {
-			return false, fileSize, "", fmt.Errorf("Integrity Check: FAILED (Expected %s, Got %s).", meta.Hash, recvHash)
+			return false, fileSize, "", fmt.Errorf("integrity check: FAILED (expected %s, got %s)", meta.Hash, recvHash)
 		}
 	} else {
 		if meta.Type == "text" {
@@ -575,11 +573,12 @@ func handleReceiveSession(
 					return true, fileSize, fileHash, fmt.Errorf("zip slip attempt detected: %s", target)
 				}
 
-				if header.Typeflag == tar.TypeDir {
+				switch header.Typeflag {
+				case tar.TypeDir:
 					if err := os.MkdirAll(target, 0755); err != nil {
 						return true, fileSize, fileHash, err
 					}
-				} else if header.Typeflag == tar.TypeReg {
+				case tar.TypeReg:
 					f, err := os.Create(target)
 					if err != nil {
 						return true, fileSize, fileHash, err

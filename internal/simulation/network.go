@@ -12,9 +12,9 @@ type LossyPacketConn struct {
 	net.PacketConn
 	lossRate float64       // 0.0 to 1.0 (e.g. 0.2 = 20% loss)
 	latency  time.Duration // Fixed latency per packet
-	jitter   time.Duration // Random jitter +/-
-	mu       sync.Mutex
-	rand     *rand.Rand
+
+	mu   sync.Mutex
+	rand *rand.Rand
 }
 
 func NewLossyPacketConn(c net.PacketConn, lossRate float64, latency time.Duration) *LossyPacketConn {

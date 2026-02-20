@@ -40,6 +40,7 @@ func NewICEAgent(ctx context.Context, isControlling bool, customTurn *CustomTurn
 	urls := []*ice.URL{}
 
 	// STUN
+	//nolint:staticcheck // ice/v2 requires ice.URL which is deprecated in favor of stun.URI, but ice/v2 still uses it.
 	stunURL, err := ice.ParseURL(StunServer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse stun url: %w", err)
@@ -49,6 +50,7 @@ func NewICEAgent(ctx context.Context, isControlling bool, customTurn *CustomTurn
 	// TURN Configuration
 	if customTurn != nil && customTurn.URL != "" {
 		// Use User-Provided Relay
+		//nolint:staticcheck // See above
 		turnURL, err := ice.ParseURL(customTurn.URL)
 		if err != nil {
 			return nil, fmt.Errorf("invalid custom relay url: %w", err)
@@ -68,6 +70,7 @@ func NewICEAgent(ctx context.Context, isControlling bool, customTurn *CustomTurn
 			var creds TurnCredentials
 			if err := json.NewDecoder(resp.Body).Decode(&creds); err == nil {
 				for _, uri := range creds.URIs {
+					//nolint:staticcheck // See above
 					turnURL, err := ice.ParseURL(uri)
 					if err == nil {
 						turnURL.Username = creds.Username

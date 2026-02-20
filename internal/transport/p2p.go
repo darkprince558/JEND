@@ -193,10 +193,10 @@ type IcePacketConn struct {
 }
 
 func (c *IcePacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
-	n, err = c.Conn.Read(p)
-	return n, c.Conn.RemoteAddr(), err
+	n, err = c.Read(p)
+	return n, c.RemoteAddr(), err
 }
 
 func (c *IcePacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	return c.Conn.Write(p)
+	return c.Write(p)
 }

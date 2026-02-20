@@ -55,8 +55,8 @@ func NewFilePickerModel(directoryMode bool) FilePickerModel {
 	// Show sizes
 	fp.ShowSize = true
 	fp.ShowPermissions = false
-	fp.Height = 15
-
+	fp.SetHeight(15) // Height of the file picker
+	fp.ShowHidden = false
 	// Search text input
 	ti := textinput.New()
 	ti.Placeholder = "type a path or filename..."
@@ -91,7 +91,7 @@ func (m FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if fpHeight > 25 {
 			fpHeight = 25
 		}
-		m.filepicker.Height = fpHeight
+		m.filepicker.SetHeight(fpHeight)
 		return m, nil
 
 	case tea.MouseMsg:

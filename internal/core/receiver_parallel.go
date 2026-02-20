@@ -175,7 +175,7 @@ func downloadParallel(
 	// Progress Monitor
 	monitorDone := make(chan struct{})
 	go func() {
-		var total int64 = completedBytes
+		var total = completedBytes
 		for n := range progressChan {
 			total += n
 			elapsed := time.Since(startTime).Seconds()

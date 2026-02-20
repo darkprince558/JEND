@@ -11,11 +11,11 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awscognito"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsdynamodb"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awss3"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiot"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"
-	"github.com/aws/aws-cdk-go/awscdk/v2/awss3"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awssecretsmanager"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
@@ -235,7 +235,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		SecurityGroup:      turnSg,
 		UserData:           userData,
 		VpcSubnets:         &awsec2.SubnetSelection{SubnetType: awsec2.SubnetType_PUBLIC},
-		DetailedMonitoring: jsii.Bool(true), // Enable detailed monitoring
+		DetailedMonitoring: jsii.Bool(false), // Disable to save ~$2.10/month and avoid metric limits
 	})
 
 	// Add SSM permissions and Secrets Manager Access

@@ -133,7 +133,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 		err = regClient.Register(code, "", portInt, metaBytes)
 		if err != nil {
-			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Registry Registration Failed: %w", err), Level: ui.LevelFatal})
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("registry registration failed: %w", err), Level: ui.LevelFatal})
 			return
 		}
 
@@ -257,11 +257,9 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			fileLock := flock.New(filePath)
 			locked, err := fileLock.TryLock()
 			if err != nil {
-				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Could not enable file lock: %v", err), Level: ui.LevelWarning})
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("could not enable file lock: %v", err), Level: ui.LevelWarning})
 			} else if !locked {
-				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("File is currently in use by another process. Changes during transfer may corrupt data."), Level: ui.LevelWarning})
-			} else {
-				// Lock acquired
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("file is currently in use by another process. Changes during transfer may corrupt data"), Level: ui.LevelWarning})
 			}
 
 			fileName = info.Name()
@@ -298,7 +296,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	fmt.Sscanf(port, "%d", &portInt)
 	stopAdvertising, err := discovery.StartAdvertising(portInt, code)
 	if err != nil {
-		sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Failed to advertise on local network: %v", err), Level: ui.LevelWarning})
+		sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to advertise on local network: %v", err), Level: ui.LevelWarning})
 	} else {
 		defer stopAdvertising()
 		sendMsg(ui.StatusMsg("Broadcasting on local network..."))
@@ -313,7 +311,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		sendMsg(ui.StatusMsg("Connecting to Signaling Network..."))
 		sigClient, err := signaling.NewIoTClient(context.Background(), "sender-"+code)
 		if err != nil {
-			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Cloud signaling unavailable (%v). Using local network only.", err), Level: ui.LevelWarning})
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("cloud signaling unavailable (%v). Using local network only", err), Level: ui.LevelWarning})
 			return
 		}
 		defer sigClient.Disconnect()
@@ -329,7 +327,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 		iceListener, err := tr.ListenPacket(pc)
 		if err != nil {
-			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("Failed to listen on ICE: %v", err), Level: ui.LevelWarning})
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to listen on ICE: %v", err), Level: ui.LevelWarning})
 			return
 		}
 
@@ -377,7 +375,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Receiver connected (%s)! Opening stream...", conn.RemoteAddr())))
 
 		var wg sync.WaitGroup
-		var streamID int = 0
+		var streamID = 0
 		var transferDone bool
 		acceptCtx, cancelAccept := context.WithCancel(context.Background())
 		defer cancelAccept()
@@ -499,7 +497,8 @@ func handleConnection(
 	var offset int64 = 0
 	var byteLimit int64 = -1 // -1 means until EOF
 
-	if pType == protocol.TypeAck {
+	switch pType {
+	case protocol.TypeAck:
 		if length == 8 {
 			if err := binary.Read(stream, binary.LittleEndian, &offset); err != nil {
 				return false, err
@@ -508,7 +507,7 @@ func handleConnection(
 				sendMsg(ui.StatusMsg(fmt.Sprintf("Resuming transfer from %d bytes...", offset)))
 			}
 		}
-	} else if pType == protocol.TypeRangeReq {
+	case protocol.TypeRangeReq:
 		if length != 16 {
 			return false, fmt.Errorf("invalid range request length")
 		}
@@ -523,7 +522,7 @@ func handleConnection(
 		offset = startOff
 		byteLimit = lenReq
 		sendMsg(ui.StatusMsg(fmt.Sprintf("Parallel worker sending bytes %d-%d", offset, offset+byteLimit)))
-	} else {
+	default:
 		return false, fmt.Errorf("unexpected packet type: %d", pType)
 	}
 
@@ -602,7 +601,8 @@ func handleConnection(
 }
 
 func CompressPath(filePath string, format string) (string, error) {
-	if format == "tar.gz" {
+	switch format {
+	case "tar.gz":
 		tempFile, err := os.CreateTemp("", "jend-*.tar.gz")
 		if err != nil {
 			return "", err
@@ -656,7 +656,7 @@ func CompressPath(filePath string, format string) (string, error) {
 			return "", err
 		}
 		return tempFile.Name(), nil
-	} else if format == "zip" {
+	case "zip":
 		tempFile, err := os.CreateTemp("", "jend-*.zip")
 		if err != nil {
 			return "", err

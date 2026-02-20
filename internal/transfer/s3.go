@@ -38,6 +38,7 @@ func UploadToS3(ctx context.Context, filePath string, code string, identityPoolI
 
 	// 3. Upload
 	client := s3.NewFromConfig(cfg)
+	//nolint:staticcheck // feature/s3/manager is deprecated but we're keeping it for now
 	uploader := manager.NewUploader(client)
 
 	f, err := os.Open(filePath)
@@ -48,6 +49,7 @@ func UploadToS3(ctx context.Context, filePath string, code string, identityPoolI
 
 	key := fmt.Sprintf("transfers/%s/%s", code, filepath.Base(filePath))
 
+	//nolint:staticcheck // feature/s3/manager is deprecated but we're keeping it for now
 	_, err = uploader.Upload(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(jendcfg.DefaultS3Bucket),
 		Key:    aws.String(key),
@@ -75,6 +77,7 @@ func DownloadFromS3(ctx context.Context, key string, outputDir string, identityP
 
 	// 2. Download
 	client := s3.NewFromConfig(cfg)
+	//nolint:staticcheck // feature/s3/manager is deprecated but we're keeping it for now
 	downloader := manager.NewDownloader(client)
 
 	fileName := filepath.Base(key)
@@ -86,6 +89,7 @@ func DownloadFromS3(ctx context.Context, key string, outputDir string, identityP
 	}
 	defer f.Close()
 
+	//nolint:staticcheck // feature/s3/manager is deprecated but we're keeping it for now
 	_, err = downloader.Download(ctx, f, &s3.GetObjectInput{
 		Bucket: aws.String(jendcfg.DefaultS3Bucket),
 		Key:    aws.String(key),
