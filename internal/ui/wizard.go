@@ -313,18 +313,28 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		case 4: // Incognito toggle
 			m.incognito = !m.incognito
 			if m.incognito {
-				m.noClipboard = true
-				m.noHistory = true
+				m.noClipboard = false
+				m.noHistory = false
 			}
 		case 5: // No Clipboard toggle
 			m.noClipboard = !m.noClipboard
-			if !m.noClipboard {
+			if m.noClipboard {
 				m.incognito = false
+			}
+			if m.noClipboard && m.noHistory {
+				m.incognito = true
+				m.noClipboard = false
+				m.noHistory = false
 			}
 		case 6: // No History toggle
 			m.noHistory = !m.noHistory
-			if !m.noHistory {
+			if m.noHistory {
 				m.incognito = false
+			}
+			if m.noClipboard && m.noHistory {
+				m.incognito = true
+				m.noClipboard = false
+				m.noHistory = false
 			}
 		}
 	case tea.KeyTab, tea.KeyRight:
@@ -333,8 +343,8 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.result.ForceZip = m.forceZip
 		m.result.ForceTar = m.forceTar
 		m.result.Incognito = m.incognito
-		m.result.NoClipboard = m.noClipboard
-		m.result.NoHistory = m.noHistory
+		m.result.NoClipboard = m.noClipboard || m.incognito
+		m.result.NoHistory = m.noHistory || m.incognito
 		m.step = WizardStepConfirm
 		return m, nil
 	}
