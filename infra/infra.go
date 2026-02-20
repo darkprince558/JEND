@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiot"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awslogs"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awssecretsmanager"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
@@ -65,6 +66,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Environment: &map[string]*string{
 			"TABLE_NAME": table.TableName(),
 		},
+		LogRetention: awslogs.RetentionDays_ONE_WEEK,
 	})
 
 	table.GrantReadWriteData(registryFunc)
@@ -256,6 +258,7 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 			"TURN_URI":            turnInstance.InstancePublicIp(),
 			"TURN_SECRET_KEY_ARN": turnSecret.SecretArn(),
 		},
+		LogRetention: awslogs.RetentionDays_ONE_WEEK,
 	})
 	// Pass the resolved secret value to Lambda via Environment Variable
 
