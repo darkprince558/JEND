@@ -189,13 +189,12 @@ func (m SendWizardModel) updateStepSource(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, textarea.Blink
 		case 1, 2:
 			// File (1) or Folder (2) picker
-			return m, tea.Quit // Will be handled by RunSendWizard
+			return m, tea.Batch(tea.ClearScreen, tea.Quit) // Clear to prevent jitter before launching picker
 		}
 	case tea.KeyRight:
-		if m.result.IsText || m.filePath != "" {
-			m.step = WizardStepOptions
-			return m, nil
-		}
+		// We purposefully do not auto-advance to step 2 here to prevent
+		// fast-forwarding bugs if the user wants to re-edit their selection.
+		// They must use KeyEnter.
 	}
 	return m, nil
 }
@@ -291,8 +290,8 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	case tea.KeyEsc, tea.KeyLeft:
 		// Go back to step 1 (Non-destructive)
 		m.step = WizardStepSource
-		// We preserve m.filePath, m.fileName, m.result.IsText etc.
-		// They are only reset if the user explicitly changes selection in Step 1.
+		// Clear IsText so clicking Text Snippet again doesn't fast-forward
+		m.result.IsText = false
 		m.cursor = m.sourceChoice
 		return m, nil
 	case tea.KeyEnter, tea.KeySpace:
