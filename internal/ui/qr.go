@@ -13,11 +13,10 @@ import (
 func RenderQR(url string) string {
 	var buf bytes.Buffer
 	qrterminal.GenerateWithConfig(url, qrterminal.Config{
-		Level:     qrterminal.L,
-		Writer:    &buf,
-		BlackChar: qrterminal.BLACK,
-		WhiteChar: qrterminal.WHITE,
-		QuietZone: 2,
+		Level:      qrterminal.L,
+		Writer:     &buf,
+		HalfBlocks: true,
+		QuietZone:  1,
 	})
 
 	// Apply purple coloring to the QR blocks
