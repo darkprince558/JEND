@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/signal"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/darkprince558/jend/internal/config"
 	"github.com/darkprince558/jend/internal/core"
 	"github.com/darkprince558/jend/internal/transport"
@@ -33,6 +36,7 @@ var (
 	relayPass       string
 	flagPort        string
 	useS3           bool
+	useQR           bool
 )
 
 var sendCmd = &cobra.Command{
@@ -120,6 +124,13 @@ Example:
 		if flagPort == "" {
 			flagPort = "9000"
 		}
+
+		// QR Mode: start local HTTP server instead of P2P sender
+		if useQR {
+			startQRSender(filePath, textContent, isText, forceTar, forceZip)
+			return
+		}
+
 		startSender(filePath, textContent, isText, headless, flagPort, timeout, forceTar, forceZip, sendNoHistory, sendNoClipboard, turnCfg, useS3)
 	},
 }
@@ -140,6 +151,7 @@ func init() {
 	sendCmd.Flags().StringVar(&relayPass, "relay-pass", "", "TURN Relay Password")
 	sendCmd.Flags().StringVar(&flagPort, "port", "9000", "Port to listen on (default 9000)")
 	sendCmd.Flags().BoolVar(&useS3, "s3", false, "Use S3 for file transfer (limit 200MB)")
+	sendCmd.Flags().BoolVar(&useQR, "qr", false, "Generate a QR code for browser-based download (no JEND needed on receiver)")
 }
 
 // startSender initializes the sender process.
@@ -197,4 +209,146 @@ func startSender(filePath string, textContent string, isText bool, headless bool
 		cancel()
 		wg.Wait()
 	}
+}
+
+// startQRSender handles the --qr mode: starts a local HTTP server and prints a QR code.
+func startQRSender(filePath string, textContent string, isText bool, forceTar, forceZip bool) {
+	var fileName string
+	var fileSize int64
+	var fileHash string
+	var err error
+
+	if isText {
+		fileName = "text-snippet.txt"
+		fileSize = int64(len(textContent))
+		// Compute hash of text content
+		h := sha256.Sum256([]byte(textContent))
+		fileHash = hex.EncodeToString(h[:])
+	} else {
+		// Check if path is a directory → compress first
+		info, err := os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if info.IsDir() || forceTar {
+			fmt.Println("Compressing to .tar.gz...")
+			tempPath, err := core.CompressPath(filePath, "tar.gz")
+			if err != nil {
+				fmt.Printf("Error compressing: %v\n", err)
+				os.Exit(1)
+			}
+			defer func() { _ = os.Remove(tempPath) }()
+			filePath = tempPath
+			fileName = filepath.Base(filePath) + ".tar.gz"
+		} else if forceZip {
+			fmt.Println("Compressing to .zip...")
+			tempPath, err := core.CompressPath(filePath, "zip")
+			if err != nil {
+				fmt.Printf("Error compressing: %v\n", err)
+				os.Exit(1)
+			}
+			defer func() { _ = os.Remove(tempPath) }()
+			filePath = tempPath
+			fileName = filepath.Base(filePath) + ".zip"
+		} else {
+			fileName = info.Name()
+		}
+
+		// Re-stat (may have changed due to compression)
+		info, err = os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		fileSize = info.Size()
+
+		fileHash, err = core.HashFile(filePath)
+		if err != nil {
+			fmt.Printf("Error hashing file: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Get local IP
+	localIP, err := core.GetLocalIP()
+	if err != nil {
+		fmt.Printf("Error detecting local IP: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Context for cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Println("\nShutting down...")
+		cancel()
+	}()
+
+	// Create server
+	srv := core.NewQRServer(core.QRServerConfig{
+		FilePath:    filePath,
+		FileName:    fileName,
+		FileSize:    fileSize,
+		FileHash:    fileHash,
+		IsText:      isText,
+		TextContent: textContent,
+		Port:        8888,
+		OnProgress: func(sent, total int64) {
+			pct := float64(sent) / float64(total) * 100
+			fmt.Printf("\r  Sending... %.0f%%", pct)
+		},
+		OnComplete: func() {
+			fmt.Println("\n\n  ✅ Download complete! File sent successfully.")
+			// Give a moment for the HTTP response to flush, then shut down
+			go func() {
+				time.Sleep(2 * time.Second)
+				cancel()
+			}()
+		},
+	})
+
+	downloadURL := srv.URL(localIP)
+
+	// Print banner and QR
+	fmt.Println(ui.RenderBanner())
+	fmt.Println()
+	fmt.Println(ui.RenderQR(downloadURL))
+	fmt.Println()
+
+	// Print info below QR
+	hintStyle := lipgloss.NewStyle().Foreground(ui.ColorSubtext).Faint(true)
+	urlStyle := lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
+	nameStyle := lipgloss.NewStyle().Foreground(ui.ColorText).Bold(true)
+	sizeStyle := lipgloss.NewStyle().Foreground(ui.ColorSubtext)
+
+	fmt.Printf("  %s %s\n", hintStyle.Render("Scan to download:"), urlStyle.Render(downloadURL))
+	fmt.Printf("  %s %s\n", hintStyle.Render("File:"), nameStyle.Render(fileName)+" "+sizeStyle.Render("("+formatBytesLocal(fileSize)+")"))
+	fmt.Println()
+	fmt.Println(hintStyle.Render("  Waiting for download... (Ctrl+C to cancel)"))
+	fmt.Println()
+
+	if err := srv.Start(ctx); err != nil {
+		fmt.Printf("Server error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func formatBytesLocal(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	suffixes := []string{"KB", "MB", "GB", "TB"}
+	return fmt.Sprintf("%.1f %s", float64(b)/float64(div), suffixes[exp])
 }
