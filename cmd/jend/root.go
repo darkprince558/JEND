@@ -38,8 +38,8 @@ on the same network or over the internet using a simple code.`,
 
 		usage := lipgloss.NewStyle().
 			Foreground(ui.ColorText).
-			Align(lipgloss.Center).
-			Render("jend send <file>     Send a file\njend receive <code>  Receive a file\njend --help          Show all commands")
+			Align(lipgloss.Left).
+			Render("> jend send <file>     Send a file\n> jend receive <code>  Receive a file\n> jend --help          Show all commands")
 
 		output := lipgloss.JoinVertical(lipgloss.Center,
 			banner,
