@@ -63,11 +63,11 @@ func (d stagedDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	wFn := lipgloss.NewStyle().Width(d.width).Align(lipgloss.Left).PaddingLeft(2).Render
 
 	if index == m.Index() {
-		// Active (>> is 2 chars + 2 spaces = 4 chars wide)
-		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(">>  "+str)))
+		// Active (>> is 2 chars + 1 space = 3 chars wide)
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(">> "+str)))
 	} else {
-		// Inactive (2 spaces + 1 char + 1 space = 4 chars wide, so text stays completely static!)
-		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render("  > "+str)))
+		// Inactive (2 spaces + 1 char = 3 chars wide, perfectly matches 3 chars of Active!)
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render("  >"+str)))
 	}
 }
 
@@ -551,7 +551,9 @@ func (m *FilePickerModel) View() string {
 		leftWidth = 0
 		rightWidth = m.width - 2
 	} else {
-		leftWidth = (m.width * 70) / 100
+		// Sync with Update logic
+		paneWidth := (m.width - 2) / 2
+		leftWidth = paneWidth
 		rightWidth = m.width - leftWidth - 2
 	}
 
@@ -594,10 +596,10 @@ func (m *FilePickerModel) View() string {
 			fileType = strings.TrimPrefix(ext, ".") + " file"
 		}
 
-		hoverText = fmt.Sprintf("Path: %s\nSize: %s\nModified: %s\nType: %s",
+		hoverText = fmt.Sprintf("Path: %s\nSize: %s\nMod: %s\nType: %s",
 			filepath.Base(item.path),
 			FormatBytes(item.size),
-			item.modTime.Format("Jan 02, 2006 15:04"),
+			item.modTime.Format("Jan 02, 15:04"),
 			fileType)
 	} else {
 		hoverText = "\n\n\n\n" // Empty reserves 4 lines
@@ -653,10 +655,8 @@ func (m *FilePickerModel) View() string {
 	// Footer Instructions
 	footer := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true).Align(lipgloss.Left).Render("tab switch pane  ·  space toggle item  ·  enter confirm  ·  / search")
 
-	// Strip trailing newline from banner to remove visual gap
-	trimmedBanner := strings.TrimRight(banner, "\n")
-
-	fullPage := lipgloss.JoinVertical(lipgloss.Left, trimmedBanner, subtitle, body, footer)
+	// Render the whole block without trimming the banner to safeguard logo height geometry
+	fullPage := lipgloss.JoinVertical(lipgloss.Left, banner, subtitle, body, footer)
 
 	// Return top-left aligned, do not center
 	return fullPage
