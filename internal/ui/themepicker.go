@@ -102,6 +102,12 @@ func (m ThemePickerModel) View() string {
 	highlighted := ThemeOrder[m.cursor]
 	p := NamedThemes[highlighted]
 
+	// ── Banner ────────────────────────────────────────────────────────────
+	banner := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(p.Primary)).
+		Bold(true).
+		Render(jendBannerRaw)
+
 	// ── Header ────────────────────────────────────────────────────────────
 	header := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(p.Primary)).
@@ -110,7 +116,7 @@ func (m ThemePickerModel) View() string {
 
 	subtitle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(p.Subtext)).
-		Faint(true).
+		Faint(isDark).
 		Render("  Choose a color theme — colors update as you scroll")
 
 	// ── Theme List ────────────────────────────────────────────────────────
@@ -177,6 +183,8 @@ func (m ThemePickerModel) View() string {
 	// ── Assemble ──────────────────────────────────────────────────────────
 	var s strings.Builder
 	s.WriteString("\n")
+	s.WriteString(banner)
+	s.WriteString("\n\n")
 	s.WriteString(header)
 	s.WriteString("\n")
 	s.WriteString(subtitle)
