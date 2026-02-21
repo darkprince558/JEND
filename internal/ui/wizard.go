@@ -792,63 +792,83 @@ func RunSendWizard() (*WizardResult, error) {
 	// If source choice is "File" (1) or "Folder" (2) and no file was selected yet,
 	// we need to launch the file picker outside of alt screen
 	if (result.sourceChoice == 1 || result.sourceChoice == 2) && !result.result.IsText {
-		// Launch picker: Directory mode if sourceChoice == 2
 		isDirMode := (result.sourceChoice == 2)
-		selected, err := RunFilePicker(isDirMode)
-		if err != nil {
-			return nil, err
-		}
-		if len(selected) == 0 {
-			return &WizardResult{Cancelled: true}, nil
-		}
+		var previous []string // Track selections across back/forth
 
-		if len(selected) == 1 {
-			result.filePath = selected[0]
-			result.fileName = filepath.Base(selected[0])
-			fi, err := os.Stat(selected[0])
-			if err == nil {
-				result.fileSize = fi.Size()
-			}
-		} else {
-			// Bundle multiple files into a temp directory
-			tmpDir, err := os.MkdirTemp("", "jend-bundle-*")
+		for {
+			selected, err := RunFilePicker(isDirMode, previous)
 			if err != nil {
 				return nil, err
 			}
-			var totalSize int64
-			for _, p := range selected {
-				fi, err := os.Stat(p)
-				if err != nil {
-					continue
-				}
-				totalSize += fi.Size()
-				dest := filepath.Join(tmpDir, filepath.Base(p))
-				if fi.IsDir() {
-					_ = copyDir(p, dest)
-				} else {
-					_ = copyFile(p, dest)
-				}
+			if len(selected) == 0 {
+				return &WizardResult{Cancelled: true}, nil
 			}
-			result.filePath = tmpDir
-			result.fileName = fmt.Sprintf("Multiple files (%d items)", len(selected))
-			result.fileSize = totalSize
 
-			// Force zip compression for multiple files
-			result.forceZip = true
+			// Save for potential back-nav
+			previous = selected
+
+			if len(selected) == 1 {
+				result.filePath = selected[0]
+				result.fileName = filepath.Base(selected[0])
+				fi, err := os.Stat(selected[0])
+				if err == nil {
+					result.fileSize = fi.Size()
+				}
+			} else {
+				// Bundle multiple files into a temp directory
+				tmpDir, err := os.MkdirTemp("", "jend-bundle-*")
+				if err != nil {
+					return nil, err
+				}
+				var totalSize int64
+				for _, p := range selected {
+					fi, err := os.Stat(p)
+					if err != nil {
+						continue
+					}
+					totalSize += fi.Size()
+					dest := filepath.Join(tmpDir, filepath.Base(p))
+					if fi.IsDir() {
+						_ = copyDir(p, dest)
+					} else {
+						_ = copyFile(p, dest)
+					}
+				}
+				result.filePath = tmpDir
+				result.fileName = fmt.Sprintf("Multiple files (%d items)", len(selected))
+				result.fileSize = totalSize
+
+				// Force zip compression for multiple files
+				result.forceZip = true
+			}
+
+			// Now re-launch wizard at step 2
+			result.step = WizardStepOptions
+			result.cursor = 0
+			result.optCursor = 0
+			result.confirmCursor = 0
+			result.result.FilePath = result.filePath
+
+			tm2, err := tea.NewProgram(result, tea.WithAltScreen()).Run()
+			if err != nil {
+				return nil, err
+			}
+
+			updatedResult := tm2.(SendWizardModel)
+
+			if updatedResult.quitting || updatedResult.result.Cancelled {
+				return &WizardResult{Cancelled: true}, nil
+			}
+
+			// If they navigated back to the source step, loop again
+			if updatedResult.step == WizardStepSource {
+				continue
+			}
+
+			// Otherwise, they confirmed correctly, break and return
+			result = updatedResult
+			break
 		}
-
-		// Now re-launch wizard at step 2
-		result.step = WizardStepOptions
-		result.cursor = 0
-		result.optCursor = 0
-		result.confirmCursor = 0
-		result.result.FilePath = result.filePath
-
-		tm2, err := tea.NewProgram(result, tea.WithAltScreen()).Run()
-		if err != nil {
-			return nil, err
-		}
-		result = tm2.(SendWizardModel)
 	}
 
 	if result.result.Cancelled || result.quitting {
