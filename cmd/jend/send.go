@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -41,11 +42,15 @@ var (
 )
 
 var sendCmd = &cobra.Command{
-	Use:   "send [file]",
+	Use:   "send [file] [file2 ...]",
 	Short: "Send a file, directory, or text snippet",
 	Long: `Generate a secure code to send a file or text snippet to another device.
+You can pass multiple files or directories and JEND will bundle them into a zip.
+Piping from stdin is also supported.
 Example:
   jend send my_file.txt
+  jend send file1.txt file2.txt image.png
+  cat notes.txt | jend send
   jend send --text "Hello world"
   jend send --incognito secret.txt
   jend send --relay-url "turn:my.relay.click:3478" --relay-user foo --relay-pass bar`,
@@ -57,9 +62,37 @@ Example:
 		isText := false
 		filePath := ""
 
+		// Check if data is being piped in via stdin
+		if textContent == "" {
+			if stdinInfo, err := os.Stdin.Stat(); err == nil {
+				if (stdinInfo.Mode() & os.ModeCharDevice) == 0 {
+					// stdin is a pipe or redirect
+					data, err := io.ReadAll(os.Stdin)
+					if err != nil {
+						fmt.Printf("Error reading from stdin: %v\n", err)
+						os.Exit(1)
+					}
+					if len(data) > 0 {
+						textContent = string(data)
+						isText = true
+					}
+				}
+			}
+		}
+
 		if textContent != "" {
 			isText = true
-		} else if len(args) > 0 {
+		} else if len(args) > 1 {
+			// Multiple files — bundle into a temp zip
+			fmt.Printf("Bundling %d items into a zip archive...\n", len(args))
+			bundlePath, err := core.BundleFiles(args)
+			if err != nil {
+				fmt.Printf("Error creating bundle: %v\n", err)
+				os.Exit(1)
+			}
+			defer func() { _ = os.Remove(bundlePath) }()
+			filePath = bundlePath
+		} else if len(args) == 1 {
 			filePath = args[0]
 		} else {
 			// No file arg — launch interactive wizard (unless headless)

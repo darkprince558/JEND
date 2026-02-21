@@ -600,6 +600,95 @@ func handleConnection(
 	return true, nil
 }
 
+// BundleFiles creates a temporary zip archive containing all the given paths.
+// Each file is stored at its base name; directories are stored recursively
+// under a folder named after the directory. Returns the path to the temp zip.
+func BundleFiles(paths []string) (string, error) {
+	tempFile, err := os.CreateTemp("", "jend-bundle-*.zip")
+	if err != nil {
+		return "", fmt.Errorf("could not create temp bundle: %w", err)
+	}
+	defer tempFile.Close()
+
+	zw := zip.NewWriter(tempFile)
+	defer zw.Close()
+
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			return "", fmt.Errorf("could not stat %q: %w", p, err)
+		}
+
+		base := filepath.Base(p)
+
+		if info.IsDir() {
+			// Walk the directory, prefix entries with the dir's base name
+			err = filepath.Walk(p, func(path string, fi os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				rel, err := filepath.Rel(filepath.Dir(p), path)
+				if err != nil {
+					return err
+				}
+
+				hdr, err := zip.FileInfoHeader(fi)
+				if err != nil {
+					return err
+				}
+				hdr.Name = filepath.ToSlash(rel)
+				if fi.IsDir() {
+					hdr.Name += "/"
+				} else {
+					hdr.Method = zip.Deflate
+				}
+				w, err := zw.CreateHeader(hdr)
+				if err != nil {
+					return err
+				}
+				if !fi.IsDir() {
+					f, err := os.Open(path)
+					if err != nil {
+						return err
+					}
+					defer f.Close()
+					_, err = io.Copy(w, f)
+					return err
+				}
+				return nil
+			})
+		} else {
+			// Single file — store at its base name
+			hdr, err := zip.FileInfoHeader(info)
+			if err != nil {
+				return "", err
+			}
+			hdr.Name = base
+			hdr.Method = zip.Deflate
+			w, err := zw.CreateHeader(hdr)
+			if err != nil {
+				return "", err
+			}
+			f, err := os.Open(p)
+			if err != nil {
+				return "", err
+			}
+			_, err = io.Copy(w, f)
+			f.Close()
+			if err != nil {
+				return "", err
+			}
+		}
+
+		if err != nil {
+			_ = os.Remove(tempFile.Name())
+			return "", fmt.Errorf("error adding %q to bundle: %w", p, err)
+		}
+	}
+
+	return tempFile.Name(), nil
+}
+
 func CompressPath(filePath string, format string) (string, error) {
 	switch format {
 	case "tar.gz":
