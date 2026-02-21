@@ -28,13 +28,6 @@ func init() {
 		log.Println("TABLE_NAME env var is empty, defaulting to JendRegistry")
 		tableName = "JendRegistry"
 	}
-
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		log.Fatalf("unable to load SDK config, %v", err)
-	}
-
-	svc = dynamodb.NewFromConfig(cfg)
 }
 
 // RegistryItem represents the data stored in DynamoDB
@@ -51,6 +44,14 @@ type RegistryItem struct {
 func Handler(ctx context.Context, request events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
 	log.Printf("Processing request %s %s", request.RequestContext.HTTP.Method, request.RequestContext.HTTP.Path)
 	method := request.RequestContext.HTTP.Method
+
+	if svc == nil {
+		cfg, err := config.LoadDefaultConfig(ctx)
+		if err != nil {
+			log.Fatalf("unable to load SDK config, %v", err)
+		}
+		svc = dynamodb.NewFromConfig(cfg)
+	}
 
 	switch method {
 	case "POST":
