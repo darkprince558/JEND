@@ -63,11 +63,11 @@ func (d stagedDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	wFn := lipgloss.NewStyle().Width(d.width).Align(lipgloss.Left).PaddingLeft(2).Render
 
 	if index == m.Index() {
-		// Active (>> is 2 chars + 1 space = 3 chars wide)
-		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(">> "+str)))
+		// Active (>> is 2 chars + 2 spaces = 4 chars wide)
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(">>  "+str)))
 	} else {
-		// Inactive (> is 1 char + 2 spaces = 3 chars wide, so text stays completely static!)
-		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render(">  "+str)))
+		// Inactive (2 spaces + 1 char + 1 space = 4 chars wide, so text stays completely static!)
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render("  > "+str)))
 	}
 }
 
