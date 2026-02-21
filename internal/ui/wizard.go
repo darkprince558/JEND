@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -103,6 +105,12 @@ func NewSendWizardModel() SendWizardModel {
 	ta.BlurredStyle.Base = ta.FocusedStyle.Base
 	ta.CharLimit = 4096
 
+	// Map extra standard text navigation keys to the textarea
+	ta.KeyMap.WordForward = key.NewBinding(key.WithKeys("alt+right", "opt+right", "ctrl+right"))
+	ta.KeyMap.WordBackward = key.NewBinding(key.WithKeys("alt+left", "opt+left", "ctrl+left"))
+	ta.KeyMap.LineStart = key.NewBinding(key.WithKeys("home", "ctrl+a", "ctrl+home", "alt+up", "opt+up"))
+	ta.KeyMap.LineEnd = key.NewBinding(key.WithKeys("end", "ctrl+e", "ctrl+end", "alt+down", "opt+down"))
+
 	return SendWizardModel{
 		step: WizardStepSource,
 		sourceOptions: []sourceOption{
@@ -131,8 +139,8 @@ func (m SendWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// Global quit
-		switch msg.Type {
-		case tea.KeyCtrlC:
+		// If editing text, Ctrl+C means Copy. So we only globally quit if NOT editing text.
+		if msg.Type == tea.KeyCtrlC && !m.textEditing {
 			m.quitting = true
 			m.result.Cancelled = true
 			return m, tea.Quit
@@ -236,15 +244,58 @@ func (m SendWizardModel) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Redo (Ctrl+Y or Ctrl+Shift+Z often map here or conflict, sticking to Ctrl+Y as standard TUI redo)
-	// Some terminals map Ctrl+Shift+Z to \x1a (same as Ctrl+Z), so reliable "Shift" detection is hard.
-	// We'll support Ctrl+Y for Redo.
-	if msg.Type == tea.KeyCtrlY {
+	// Redo
+	if msg.Type == tea.KeyCtrlY || (msg.Type == tea.KeyCtrlZ && msg.Alt) || msg.String() == "ctrl+shift+z" {
 		if m.historyIndex < len(m.history)-1 {
 			m.historyIndex++
 			state := m.history[m.historyIndex]
 			m.textArea.SetValue(state.text)
 			m.textArea.SetCursor(state.cursor)
+		}
+		return m, nil
+	}
+
+	// Cut (Ctrl+X)
+	if msg.Type == tea.KeyCtrlX {
+		val := m.textArea.Value()
+		if val != "" {
+			_ = clipboard.WriteAll(val)
+			m.textArea.Reset()
+
+			// Save to history
+			if m.historyIndex < len(m.history)-1 {
+				m.history = m.history[:m.historyIndex+1]
+			}
+			m.history = append(m.history, wizardHistoryItem{text: "", cursor: 0})
+			m.historyIndex++
+		}
+		return m, nil
+	}
+
+	// Copy (Ctrl+C)
+	if msg.Type == tea.KeyCtrlC {
+		val := m.textArea.Value()
+		if val != "" {
+			_ = clipboard.WriteAll(val)
+		}
+		return m, nil
+	}
+
+	// Paste (Ctrl+V)
+	if msg.Type == tea.KeyCtrlV {
+		text, err := clipboard.ReadAll()
+		if err == nil && text != "" {
+			oldVal := m.textArea.Value()
+			m.textArea.InsertString(text)
+			newVal := m.textArea.Value()
+
+			if newVal != oldVal {
+				if m.historyIndex < len(m.history)-1 {
+					m.history = m.history[:m.historyIndex+1]
+				}
+				m.history = append(m.history, wizardHistoryItem{text: newVal, cursor: len(newVal)})
+				m.historyIndex++
+			}
 		}
 		return m, nil
 	}
