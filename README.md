@@ -226,4 +226,21 @@ jend receive --output ~/Downloads --concurrency 16 happy-delta-seven
 Persistent configuration to save your preferences globally.
 
 * `jend config set-relay` — Save your private TURN server credentials.
-* `jend config clear-relay` — Reset to default settings.
+* `jend config clear-relay` — Reset to default relay settings.
+* `jend config set-theme <name>` — Manually set the color theme (auto, dark, light, dracula, nord, catppuccin, solarized).
+* `jend config set-color <name> <hex>` — Override specific colors in your active palette.
+
+### `jend history`
+
+JEND maintains an audit log of all your transfers locally. Running `jend history` launches an interactive TUI where you can:
+
+* Scroll through past transfers and view file details, hashes, and durations.
+* Filter by Sent/Received or search by filename/code.
+* Sort by Date, Size, or Duration.
+* Run `--headless` to print the log as a standard terminal table instead.
+
+### `jend theme`
+
+JEND includes a fully interactive theme picker.
+
+Run `jend theme` to see a live-updating mockup of the JEND interface. As you scroll through the available built-in palettes (such as Dracula, Nord, or Catppuccin), the colors will update instantly. Press `enter` to save your choice. JEND also supports an `auto` theme mode which detects your terminal's background color automatically.
