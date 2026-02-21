@@ -79,7 +79,8 @@ type FilePickerModel struct {
 	currentDir    string
 	directoryMode bool
 
-	activePane activePane
+	activePane  activePane
+	compactMode bool
 
 	// Multi-select tracking: map of absolute path to fileItem
 	selectedFiles map[string]fileItem
@@ -255,10 +256,20 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		searchHeight := 3
 		listHeight := availableHeight - searchHeight
 
-		leftWidth := (m.width * 70) / 100
-		rightWidth := m.width - leftWidth - 2
+		m.compactMode = m.width < 90
 
-		m.browserList.SetSize(leftWidth-4, listHeight-2)
+		var leftWidth, rightWidth int
+		if m.compactMode {
+			leftWidth = 0
+			rightWidth = m.width - 2
+		} else {
+			leftWidth = (m.width * 70) / 100
+			rightWidth = m.width - leftWidth - 2
+		}
+
+		if !m.compactMode {
+			m.browserList.SetSize(leftWidth-4, listHeight-2)
+		}
 
 		// The overall height of the content block in the right pane should be exactly (listHeight - 2)
 		// We subtract 6 for the hover box (4 lines text + 2 padding/borders), so stagingList height gets (listHeight - 8)
@@ -271,23 +282,38 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stagingList.Styles.TitleBar = lipgloss.NewStyle().Width(rightWidth - 4).Align(lipgloss.Center)
 
 		// Search bar width MUST match exactly (leftPane total + rightPane total)
-		// leftPane takes `leftWidth` + borders (+2? Wait, the border is applied via Style)
-		// No, `leftWidth` IS the designated total exterior width of the left pane including borders!
-		// (width/70, rightWidth = width - leftWidth - 2 gaps)
-		// So total width = leftWidth + rightWidth + 2.
-		// searchContent width should be that total, minus its own 2 border characters!
-		m.searchInput.Width = leftWidth + rightWidth + 2 - 4 // Actually, lipgloss strings usually just pad. Textinput needs internal width.
+		if m.compactMode {
+			m.searchInput.Width = rightWidth - 4
+		} else {
+			m.searchInput.Width = leftWidth + rightWidth + 2 - 4
+		}
+
+		// If we shrunk into compact mode while focus was on Browser, shift focus to Search
+		if m.compactMode && m.activePane == PaneBrowser {
+			m.activePane = PaneSearch
+			m.searchInput.Focus()
+			m.searchInput.Placeholder = "Search files, or paste path to navigate..."
+		}
 		return m, nil
 
 	case tea.KeyMsg:
 		// Switch Panes with Tab
 		if msg.String() == "tab" || msg.String() == "shift+tab" {
-			if m.activePane == PaneBrowser {
-				m.activePane = PaneStaging
-			} else if m.activePane == PaneStaging {
-				m.activePane = PaneSearch
+			if m.compactMode {
+				// Only toggle between Search and Staging
+				if m.activePane == PaneSearch {
+					m.activePane = PaneStaging
+				} else {
+					m.activePane = PaneSearch
+				}
 			} else {
-				m.activePane = PaneBrowser
+				if m.activePane == PaneBrowser {
+					m.activePane = PaneStaging
+				} else if m.activePane == PaneStaging {
+					m.activePane = PaneSearch
+				} else {
+					m.activePane = PaneBrowser
+				}
 			}
 
 			// Setup visual cues
@@ -310,8 +336,10 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activePane == PaneSearch {
 			switch msg.Type {
 			case tea.KeyEsc:
-				m.activePane = PaneBrowser
-				m.searchInput.Blur()
+				if !m.compactMode {
+					m.activePane = PaneBrowser
+					m.searchInput.Blur()
+				}
 				return m, nil
 			case tea.KeyEnter:
 				query := m.searchInput.Value()
@@ -326,16 +354,37 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if info.IsDir() {
 							m.currentDir = path
 							m.readDir(m.currentDir)
+							if m.compactMode {
+								m.searchInput.SetValue("")
+							}
+						} else {
+							// If it's a file, and we are in compact mode, add it directly!
+							if m.compactMode && !m.directoryMode {
+								if _, exists := m.selectedFiles[path]; !exists {
+									item := fileItem{
+										name:    filepath.Base(path),
+										path:    path,
+										isDir:   false,
+										size:    info.Size(),
+										modTime: info.ModTime(),
+									}
+									m.selectedFiles[path] = item
+									m.refreshStagingList()
+									m.searchInput.SetValue("")
+								}
+							}
 						}
 					}
 				} else {
-					m.browserList.SetShowFilter(true)
-					// Route the text directly to the browser list filter if needed,
-					// but bubbles natively filters on typing. Passing raw query isn't directly exposed
-					// without hacky injection.
+					if !m.compactMode {
+						m.browserList.SetShowFilter(true)
+					}
 				}
-				m.activePane = PaneBrowser
-				m.searchInput.Blur()
+
+				if !m.compactMode {
+					m.activePane = PaneBrowser
+					m.searchInput.Blur()
+				}
 				return m, nil
 			default:
 				var cmd tea.Cmd
@@ -475,16 +524,25 @@ func (m *FilePickerModel) View() string {
 	searchHeight := 3
 	listHeight := availableHeight - searchHeight
 
-	leftWidth := (m.width * 70) / 100
-	rightWidth := m.width - leftWidth - 2
+	var leftWidth, rightWidth int
+	if m.compactMode {
+		leftWidth = 0
+		rightWidth = m.width - 2
+	} else {
+		leftWidth = (m.width * 70) / 100
+		rightWidth = m.width - leftWidth - 2
+	}
 
 	// Render Left Pane
-	leftPaneStyle := inactiveBorder
-	if m.activePane == PaneBrowser {
-		leftPaneStyle = activeBorder
+	var leftPane string
+	if !m.compactMode {
+		leftPaneStyle := inactiveBorder
+		if m.activePane == PaneBrowser {
+			leftPaneStyle = activeBorder
+		}
+		leftContent := lipgloss.NewStyle().Width(leftWidth - 4).Height(listHeight - 2).Render(m.browserList.View())
+		leftPane = leftPaneStyle.Render(leftContent)
 	}
-	leftContent := lipgloss.NewStyle().Width(leftWidth - 4).Height(listHeight - 2).Render(m.browserList.View())
-	leftPane := leftPaneStyle.Render(leftContent)
 
 	// Render Right Pane
 	rightPaneStyle := inactiveBorder
@@ -540,7 +598,12 @@ func (m *FilePickerModel) View() string {
 	rightPane := rightPaneStyle.Render(rightContent)
 
 	// Combine Panes
-	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, "  ", rightPane)
+	var mainContent string
+	if m.compactMode {
+		mainContent = rightPane
+	} else {
+		mainContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPane, "  ", rightPane)
+	}
 
 	// Search Pane
 	sPaneStyle := searchInactiveStyle
@@ -553,7 +616,12 @@ func (m *FilePickerModel) View() string {
 		errText = lipgloss.NewStyle().Foreground(ColorError).Render(" " + m.err.Error())
 	}
 
-	totalTopWidth := leftWidth + rightWidth + 2
+	var totalTopWidth int
+	if m.compactMode {
+		totalTopWidth = rightWidth
+	} else {
+		totalTopWidth = leftWidth + rightWidth + 2
+	}
 
 	searchContent := lipgloss.NewStyle().Width(totalTopWidth - 2).Render(m.searchInput.View() + errText) // -2 for borders
 	searchPane := sPaneStyle.Width(totalTopWidth - 2).Render(searchContent)
