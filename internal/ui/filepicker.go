@@ -339,14 +339,14 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchInput.Focus()
 			return m, textinput.Blink
 		// Pass page down/up to active list regardless of pane
-		case "pgdown", "cmd+down":
+		case "pgdown", "ctrl+down", "ctrl+d":
 			if m.activePane == PaneBrowser {
 				m.browserList.Paginator.NextPage()
 			} else if m.activePane == PaneStaging {
 				m.stagingList.Paginator.NextPage()
 			}
 			return m, nil
-		case "pgup", "cmd+up":
+		case "pgup", "ctrl+up", "ctrl+u":
 			if m.activePane == PaneBrowser {
 				m.browserList.Paginator.PrevPage()
 			} else if m.activePane == PaneStaging {
