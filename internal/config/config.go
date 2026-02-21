@@ -11,6 +11,10 @@ type Config struct {
 	RelayURL  string `json:"relay_url,omitempty"`
 	RelayUser string `json:"relay_user,omitempty"`
 	RelayPass string `json:"relay_pass,omitempty"`
+
+	// Theme settings
+	Theme       string            `json:"theme,omitempty"`        // Named theme: dark, light, dracula, nord, catppuccin, solarized
+	ThemeColors map[string]string `json:"theme_colors,omitempty"` // Per-color hex overrides (e.g. "primary": "#FF6B6B")
 }
 
 func GetConfigPath() (string, error) {

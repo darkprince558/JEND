@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/darkprince558/jend/internal/config"
 	"github.com/darkprince558/jend/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -30,18 +31,24 @@ var rootCmd = &cobra.Command{
 It allows you to send files, text, and directories directly between devices
 on the same network or over the internet using a simple code.`,
 	// PersistentPreRun runs before every command and its subcommands.
-	// We apply the theme here so it is available for all rendering.
+	// It resolves the theme: --theme flag > config file > auto-detect.
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		var dark bool
-		switch themeFlag {
-		case "dark":
-			dark = true
-		case "light":
-			dark = false
-		default: // "auto"
-			dark = ui.DetectTheme()
+		themeName := themeFlag // default "auto"
+
+		// If flag is still "auto", check config file for a saved theme
+		if themeName == "auto" {
+			if cfg, err := config.Load(); err == nil && cfg.Theme != "" {
+				themeName = cfg.Theme
+			}
 		}
-		ui.InitTheme(dark)
+
+		// Load per-color overrides from config
+		var overrides map[string]string
+		if cfg, err := config.Load(); err == nil && cfg.ThemeColors != nil {
+			overrides = cfg.ThemeColors
+		}
+
+		ui.InitTheme(themeName, overrides)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		banner := ui.RenderBannerWithTagline()
