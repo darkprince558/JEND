@@ -180,35 +180,25 @@ func (s *QRServer) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 func (s *QRServer) handlePage(w http.ResponseWriter, r *http.Request) {
 	fileType := "File"
-	icon := "📄"
 	if s.config.IsText {
 		fileType = "Text Snippet"
-		icon = "📝"
 	} else if ext := filepath.Ext(s.config.FileName); ext != "" {
 		switch strings.ToLower(ext) {
 		case ".zip", ".tar", ".gz", ".rar", ".7z":
-			icon = "📦"
 			fileType = strings.ToUpper(strings.TrimPrefix(ext, ".")) + " Archive"
 		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg":
-			icon = "🖼️"
 			fileType = "Image"
 		case ".mp4", ".mov", ".avi", ".mkv":
-			icon = "🎬"
 			fileType = "Video"
 		case ".mp3", ".wav", ".flac", ".aac":
-			icon = "🎵"
 			fileType = "Audio"
 		case ".pdf":
-			icon = "📕"
 			fileType = "PDF Document"
 		case ".doc", ".docx":
-			icon = "📘"
 			fileType = "Word Document"
 		case ".pptx", ".ppt":
-			icon = "📙"
 			fileType = "Presentation"
 		case ".xls", ".xlsx", ".csv":
-			icon = "📊"
 			fileType = "Spreadsheet"
 		default:
 			fileType = strings.TrimPrefix(ext, ".") + " file"
@@ -247,13 +237,13 @@ func (s *QRServer) handlePage(w http.ResponseWriter, r *http.Request) {
 body{background:#16161A;color:#FFFFFE;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .container{max-width:420px;width:100%;text-align:center}
-.logo{font-size:2rem;font-weight:800;letter-spacing:0.15em;color:#7F5AF0;margin-bottom:8px}
-.logo span{color:#00F0FF}
-.subtitle{color:#94A1B2;font-size:0.85rem;margin-bottom:32px}
+.logo{font-family:'Courier New',Courier,monospace;font-size:0.55rem;line-height:1.15;
+color:#7F5AF0;margin-bottom:16px;white-space:pre;text-align:left;display:inline-block}
+.subtitle{color:#94A1B2;font-size:0.85rem;margin-bottom:28px}
 .card{background:#242629;border-radius:16px;padding:28px 24px;margin-bottom:24px;
 border:1px solid rgba(127,90,240,0.15)}
-.file-icon{font-size:3rem;margin-bottom:12px}
-.file-name{font-size:1.25rem;font-weight:700;color:#FFFFFE;word-break:break-all;margin-bottom:16px}
+.file-name{font-size:1.1rem;font-weight:700;color:#FFFFFE;word-break:break-all;margin-bottom:16px;
+padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.06)}
 .meta{display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:left;margin-bottom:20px}
 .meta-item{background:#16161A;border-radius:10px;padding:12px 14px}
 .meta-label{font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:#94A1B2;margin-bottom:4px}
@@ -264,30 +254,34 @@ margin-bottom:16px;font-family:'SF Mono',Monaco,monospace;font-size:0.8rem;color
 max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
 border:1px solid rgba(0,240,255,0.1)}
 .btn{display:block;width:100%;padding:16px;border:none;border-radius:12px;cursor:pointer;
-font-size:1.1rem;font-weight:700;letter-spacing:0.04em;transition:all 0.2s ease}
-.btn-download{background:linear-gradient(135deg,#7F5AF0,#6B3FD4);color:#FFFFFE;
+font-size:1.1rem;font-weight:700;letter-spacing:0.04em;transition:all 0.2s ease;text-decoration:none;color:#FFFFFE}
+.btn-download{background:linear-gradient(135deg,#7F5AF0,#6B3FD4);
 box-shadow:0 4px 24px rgba(127,90,240,0.35)}
 .btn-download:hover{transform:translateY(-2px);box-shadow:0 6px 32px rgba(127,90,240,0.5)}
 .btn-download:active{transform:translateY(0)}
 .progress-wrap{display:none;margin-top:16px}
-.progress-bar{height:6px;background:#242629;border-radius:3px;overflow:hidden}
+.progress-bar{height:6px;background:#1a1a1e;border-radius:3px;overflow:hidden}
 .progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#7F5AF0,#00F0FF);
 border-radius:3px;transition:width 0.3s ease}
 .progress-text{font-size:0.8rem;color:#94A1B2;margin-top:8px}
-.done{display:none;margin-top:16px}
-.done .check{font-size:3rem;margin-bottom:8px}
-.done .msg{color:#2CB67D;font-weight:700;font-size:1.1rem}
+.done{display:none;margin-top:16px;padding:16px;background:rgba(44,182,125,0.08);
+border-radius:10px;border:1px solid rgba(44,182,125,0.2)}
+.done .msg{color:#2CB67D;font-weight:700;font-size:1rem;letter-spacing:0.02em}
 .footer{color:#94A1B2;font-size:0.7rem;margin-top:24px;opacity:0.6}
 .footer a{color:#7F5AF0;text-decoration:none}
-@media(max-width:400px){.meta{grid-template-columns:1fr}.card{padding:20px 16px}}
+@media(max-width:400px){.meta{grid-template-columns:1fr}.card{padding:20px 16px}.logo{font-size:0.45rem}}
 </style>
 </head>
 <body>
 <div class="container">
-  <div class="logo">JE<span>N</span>D</div>
+  <pre class="logo">     ██╗███████╗███╗   ██╗██████╗ 
+     ██║██╔════╝████╗  ██║██╔══██╗
+     ██║█████╗  ██╔██╗ ██║██║  ██║
+██   ██║██╔══╝  ██║╚██╗██║██║  ██║
+╚█████╔╝███████╗██║ ╚████║██████╔╝
+ ╚════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝ </pre>
   <div class="subtitle">Someone wants to send you a file</div>
   <div class="card">
-    <div class="file-icon">` + icon + `</div>
     <div class="file-name">` + s.config.FileName + `</div>
     <div class="meta">
       <div class="meta-item">
@@ -316,8 +310,7 @@ border-radius:3px;transition:width 0.3s ease}
       <div class="progress-text" id="progressText">Starting download...</div>
     </div>
     <div class="done" id="doneMsg">
-      <div class="check">✅</div>
-      <div class="msg">Download Complete!</div>
+      <div class="msg">Transfer Complete</div>
     </div>
   </div>
   <div class="footer">Powered by <a href="https://github.com/darkprince558/jend">JEND</a> · End-to-end encrypted file transfer</div>

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -318,7 +319,10 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 	// Print banner and QR
 	fmt.Println(ui.RenderBanner())
 	fmt.Println()
-	fmt.Println(ui.RenderQR(downloadURL))
+	// Indent QR code by 4 spaces to align with banner/text
+	for _, line := range strings.Split(ui.RenderQR(downloadURL), "\n") {
+		fmt.Println("    " + line)
+	}
 	fmt.Println()
 
 	// Print info below QR
