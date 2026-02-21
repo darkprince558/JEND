@@ -14,6 +14,7 @@ var (
 	// Persistent Flags
 	headless   bool
 	timeoutStr string
+	themeFlag  string // "auto", "dark", or "light"
 
 	// App Version (injected at build time)
 	version = "dev"
@@ -28,6 +29,20 @@ var rootCmd = &cobra.Command{
 	Long: `JEND is a secure, direct file transfer tool.
 It allows you to send files, text, and directories directly between devices
 on the same network or over the internet using a simple code.`,
+	// PersistentPreRun runs before every command and its subcommands.
+	// We apply the theme here so it is available for all rendering.
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		var dark bool
+		switch themeFlag {
+		case "dark":
+			dark = true
+		case "light":
+			dark = false
+		default: // "auto"
+			dark = ui.DetectTheme()
+		}
+		ui.InitTheme(dark)
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		banner := ui.RenderBannerWithTagline()
 
@@ -79,6 +94,7 @@ func init() {
 	// Persistent Flags (Available to all commands)
 	rootCmd.PersistentFlags().BoolVar(&headless, "headless", false, "Run in headless mode (no TUI)")
 	rootCmd.PersistentFlags().StringVar(&timeoutStr, "timeout", "10m", "Global timeout duration (e.g. 10m)")
+	rootCmd.PersistentFlags().StringVar(&themeFlag, "theme", "auto", "Color theme: auto, dark, or light")
 }
 
 func getTimeout() time.Duration {
