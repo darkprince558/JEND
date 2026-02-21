@@ -63,11 +63,11 @@ func (d stagedDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	wFn := lipgloss.NewStyle().Width(d.width).Align(lipgloss.Left).PaddingLeft(2).Render
 
 	if index == m.Index() {
-		// Active (>> + space = 3 chars)
-		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(">> "+str)))
+		// Active (space + >> + space = 4 chars wide)
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(" >> "+str)))
 	} else {
-		// Inactive (2 spaces + > = 3 chars, perfectly matches Active width!)
-		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render("  >"+str)))
+		// Inactive (3 spaces + > = 4 chars wide)
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render("   >"+str)))
 	}
 }
 
@@ -256,7 +256,10 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		bannerHeight := lipgloss.Height(RenderBanner())
 		subtitleHeight := lipgloss.Height(SectionHeaderStyle.Render(">> File picker <<"))
-		footerHeight := 1 // Keybind hint without extra blank line
+		footerHeight := lipgloss.Height("tab switch pane") // Safely calculate exact requested footer height
+
+		// Determine the vertical room we have for the lists
+		// Subtract an extra 1 for the prompt/status bar of the terminal itself
 		availableHeight := m.height - bannerHeight - subtitleHeight - footerHeight - 1
 		if availableHeight < 10 {
 			availableHeight = 10
@@ -655,10 +658,13 @@ func (m *FilePickerModel) View() string {
 	// Footer Instructions
 	footer := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true).Align(lipgloss.Left).Render("tab switch pane  ·  space toggle item  ·  enter confirm  ·  / search")
 
-	// Render the whole block.
-	// We MUST strip trailing newlines aggressively from the final join to ensure we don't accidentally push the height > m.height and cause a double-render terminal scroll.
+	// Pre-join everything exactly
 	fullPage := lipgloss.JoinVertical(lipgloss.Left, banner, subtitle, body, footer)
-	fullPage = strings.TrimRight(fullPage, "\n")
+
+	// Force the full page to never exceed the requested terminal m.height, truncating any 1-off lines that cause scrolls
+	if lipgloss.Height(fullPage) > m.height-1 {
+		fullPage = lipgloss.NewStyle().MaxHeight(m.height - 1).Render(fullPage)
+	}
 
 	// Return top-left aligned, do not center
 	return fullPage
