@@ -255,8 +255,8 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 		bannerHeight := lipgloss.Height(RenderBanner())
-		subtitleHeight := 2 // ">> File picker <<" + newline
-		footerHeight := 2   // Keybind hint + blank line
+		subtitleHeight := lipgloss.Height(SectionHeaderStyle.Render(">> File picker <<"))
+		footerHeight := 1 // Keybind hint without extra blank line
 		availableHeight := m.height - bannerHeight - subtitleHeight - footerHeight - 1
 		if availableHeight < 10 {
 			availableHeight = 10
@@ -267,12 +267,25 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.compactMode = m.width < 90
 
+		// The file picker takes exactly half the screen plus 20 characters (10 per pane)
+		m.width = (m.termWidth / 2) + 20
+		if m.width < 90 {
+			m.width = 90 // Sane lower bounds so compact mode triggers or it remains legible
+		}
+		if m.width > m.termWidth {
+			m.width = m.termWidth // Can't exceed screen
+		}
+
+		m.compactMode = m.width < 90
+
 		var leftWidth, rightWidth int
 		if m.compactMode {
 			leftWidth = 0
 			rightWidth = m.width - 2
 		} else {
-			leftWidth = (m.width * 70) / 100
+			// Make File Selection (left) and Selected (right) panes exactly equal width
+			paneWidth := (m.width - 2) / 2
+			leftWidth = paneWidth
 			rightWidth = m.width - leftWidth - 2
 		}
 
@@ -640,10 +653,13 @@ func (m *FilePickerModel) View() string {
 	// Footer Instructions
 	footer := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true).Align(lipgloss.Left).Render("tab switch pane  ·  space toggle item  ·  enter confirm  ·  / search")
 
-	fullPage := lipgloss.JoinVertical(lipgloss.Left, banner, subtitle, body, "\n", footer)
+	// Strip trailing newline from banner to remove visual gap
+	trimmedBanner := strings.TrimRight(banner, "\n")
 
-	// Center the constrained-width UI within the actual available terminal screen real estate
-	return lipgloss.Place(m.termWidth, m.termHeight, lipgloss.Center, lipgloss.Top, fullPage)
+	fullPage := lipgloss.JoinVertical(lipgloss.Left, trimmedBanner, subtitle, body, footer)
+
+	// Return top-left aligned, do not center
+	return fullPage
 }
 
 // RunFilePicker returns active file paths to be bundled/sent.
