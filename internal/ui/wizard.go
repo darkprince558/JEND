@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -797,16 +798,43 @@ func RunSendWizard() (*WizardResult, error) {
 		if err != nil {
 			return nil, err
 		}
-		if selected == "" {
+		if len(selected) == 0 {
 			return &WizardResult{Cancelled: true}, nil
 		}
-		result.filePath = selected
-		result.fileName = filepath.Base(selected)
 
-		// Get file size
-		fi, err := os.Stat(selected)
-		if err == nil {
-			result.fileSize = fi.Size()
+		if len(selected) == 1 {
+			result.filePath = selected[0]
+			result.fileName = filepath.Base(selected[0])
+			fi, err := os.Stat(selected[0])
+			if err == nil {
+				result.fileSize = fi.Size()
+			}
+		} else {
+			// Bundle multiple files into a temp directory
+			tmpDir, err := os.MkdirTemp("", "jend-bundle-*")
+			if err != nil {
+				return nil, err
+			}
+			var totalSize int64
+			for _, p := range selected {
+				fi, err := os.Stat(p)
+				if err != nil {
+					continue
+				}
+				totalSize += fi.Size()
+				dest := filepath.Join(tmpDir, filepath.Base(p))
+				if fi.IsDir() {
+					_ = copyDir(p, dest)
+				} else {
+					_ = copyFile(p, dest)
+				}
+			}
+			result.filePath = tmpDir
+			result.fileName = fmt.Sprintf("Multiple files (%d items)", len(selected))
+			result.fileSize = totalSize
+
+			// Force zip compression for multiple files
+			result.forceZip = true
 		}
 
 		// Now re-launch wizard at step 2
@@ -814,7 +842,7 @@ func RunSendWizard() (*WizardResult, error) {
 		result.cursor = 0
 		result.optCursor = 0
 		result.confirmCursor = 0
-		result.result.FilePath = selected
+		result.result.FilePath = result.filePath
 
 		tm2, err := tea.NewProgram(result, tea.WithAltScreen()).Run()
 		if err != nil {
@@ -831,4 +859,49 @@ func RunSendWizard() (*WizardResult, error) {
 	r := &result.result
 	r.FilePath = result.filePath
 	return r, nil
+}
+
+// copyFile is a helper utility for multi-file bundling
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+// copyDir is a helper utility for multi-file bundling
+func copyDir(src string, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, info.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			err = copyDir(srcPath, dstPath)
+		} else {
+			err = copyFile(srcPath, dstPath)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
