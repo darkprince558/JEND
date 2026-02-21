@@ -133,7 +133,7 @@ func (m ThemePickerModel) View() string {
 			nameStr = lipgloss.NewStyle().
 				Foreground(lipgloss.Color(tp.Primary)).
 				Bold(true).
-				Render("> > " + strings.ToUpper(name))
+				Render(">> " + strings.ToUpper(name))
 		} else {
 			nameStr = lipgloss.NewStyle().
 				Foreground(lipgloss.Color(p.Subtext)).
