@@ -48,9 +48,9 @@ var NamedThemes = map[string]ThemePalette{
 		Bg: "#16161A", Panel: "#242629",
 	},
 	"light": {
-		Primary: "#5A32D9", Secondary: "#1A7D57", Accent: "#007ACC",
+		Primary: "#5A32D9", Secondary: "#1A7D57", Accent: "#0055CC",
 		Error: "#C62045", Warning: "#B8860B",
-		Text: "#16161A", Subtext: "#5C6370",
+		Text: "#0D0D0F", Subtext: "#374151",
 		Bg: "#F5F5F7", Panel: "#E0E0E6",
 	},
 	"dracula": {
@@ -207,8 +207,11 @@ func rebuildStyles() {
 		MarginTop(1)
 
 	SubTextStyle = lipgloss.NewStyle().
-		Foreground(ColorSubtext).
-		Italic(true)
+		Foreground(ColorSubtext)
+
+	if isDark {
+		SubTextStyle = SubTextStyle.Italic(true)
+	}
 
 	CodeStyle = lipgloss.NewStyle().
 		Foreground(ColorAccent).
@@ -299,7 +302,7 @@ func rebuildStyles() {
 
 	WizardHelpStyle = lipgloss.NewStyle().
 		Foreground(ColorSubtext).
-		Faint(true).
+		Faint(isDark).
 		MarginTop(1)
 }
 
