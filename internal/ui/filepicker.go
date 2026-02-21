@@ -45,14 +45,14 @@ func (i fileItem) Description() string {
 
 func (i fileItem) FilterValue() string { return i.name }
 
-// centeredDelegate is a custom delegate for the staging (right) pane. It renders items
-// centered to the designated pane width, compactly on 1 line.
-type centeredDelegate struct{ width int }
+// stagedDelegate is a custom delegate for the staging (right) pane. It renders items
+// left-aligned with a > cursor.
+type stagedDelegate struct{ width int }
 
-func (d centeredDelegate) Height() int                             { return 1 }
-func (d centeredDelegate) Spacing() int                            { return 0 }
-func (d centeredDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-func (d centeredDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+func (d stagedDelegate) Height() int                             { return 1 }
+func (d stagedDelegate) Spacing() int                            { return 0 }
+func (d stagedDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d stagedDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
 	i, ok := listItem.(fileItem)
 	if !ok {
 		return
@@ -60,15 +60,14 @@ func (d centeredDelegate) Render(w io.Writer, m list.Model, index int, listItem 
 
 	str := i.Title()
 
-	// Create an explicit width block and center the content loosely
-	wFn := lipgloss.NewStyle().Width(d.width).Align(lipgloss.Center).Render
+	wFn := lipgloss.NewStyle().Width(d.width).Align(lipgloss.Left).Render
 
 	if index == m.Index() {
 		// Active
-		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(">> "+str+" <<")))
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(">> "+str)))
 	} else {
 		// Inactive
-		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render(str)))
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render("> "+str)))
 	}
 }
 
@@ -121,7 +120,7 @@ func NewFilePickerModel(directoryMode bool, previousPaths []string) *FilePickerM
 	bl.SetShowHelp(false)
 
 	// Setup Staging List (Right Pane)
-	sl := list.New([]list.Item{}, centeredDelegate{width: 20}, 0, 0)
+	sl := list.New([]list.Item{}, stagedDelegate{width: 20}, 0, 0)
 	sl.Title = "Selected to Send"
 	sl.SetShowStatusBar(false)
 	sl.SetShowFilter(false)
@@ -256,13 +255,13 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.browserList.SetSize(leftWidth-4, listHeight-2)
 
 		// The overall height of the content block in the right pane should be exactly (listHeight - 2)
-		// We subtract 3 for the hover box, so stagingList height gets (listHeight - 5)
-		m.stagingList.SetSize(rightWidth-4, listHeight-5)
+		// We subtract 6 for the hover box (4 lines text + 2 padding/borders), so stagingList height gets (listHeight - 8)
+		m.stagingList.SetSize(rightWidth-4, listHeight-8)
 
-		// Update custom delegate width for centering
-		m.stagingList.SetDelegate(centeredDelegate{width: rightWidth - 6})
+		// Update custom delegate width
+		m.stagingList.SetDelegate(stagedDelegate{width: rightWidth - 6})
 
-		m.searchInput.Width = m.width - 6
+		m.searchInput.Width = leftWidth + rightWidth + 2 - 4 // Total combined pane width minus borders
 		return m, nil
 
 	case tea.KeyMsg:
@@ -339,6 +338,21 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activePane = PaneSearch
 			m.searchInput.Focus()
 			return m, textinput.Blink
+		// Pass page down/up to active list regardless of pane
+		case "pgdown", "cmd+down":
+			if m.activePane == PaneBrowser {
+				m.browserList.Paginator.NextPage()
+			} else if m.activePane == PaneStaging {
+				m.stagingList.Paginator.NextPage()
+			}
+			return m, nil
+		case "pgup", "cmd+up":
+			if m.activePane == PaneBrowser {
+				m.browserList.Paginator.PrevPage()
+			} else if m.activePane == PaneStaging {
+				m.stagingList.Paginator.PrevPage()
+			}
+			return m, nil
 		}
 
 		// Pane specific keys
@@ -432,7 +446,7 @@ func (m *FilePickerModel) View() string {
 	}
 
 	banner := RenderBanner()
-	subtitle := SectionHeaderStyle.Render(">> File picker <<") + "\n"
+	subtitle := SectionHeaderStyle.Render(">> File picker <<")
 
 	bannerHeight := lipgloss.Height(banner)
 	subtitleHeight := lipgloss.Height(subtitle)
@@ -478,9 +492,20 @@ func (m *FilePickerModel) View() string {
 	// Hover View Metadata Box
 	hoverText := ""
 	if item, ok := m.stagingList.SelectedItem().(fileItem); ok && len(m.selectedFiles) > 0 {
-		hoverText = fmt.Sprintf("Path: %s\nSize: %s", filepath.Base(item.path), FormatBytes(item.size))
+		fileType := "File"
+		if item.isDir {
+			fileType = "Directory"
+		} else if ext := filepath.Ext(item.path); ext != "" {
+			fileType = strings.TrimPrefix(ext, ".") + " file"
+		}
+
+		hoverText = fmt.Sprintf("Path: %s\nSize: %s\nModified: %s\nType: %s",
+			filepath.Base(item.path),
+			FormatBytes(item.size),
+			item.modTime.Format("Jan 02, 2006 15:04"),
+			fileType)
 	} else {
-		hoverText = "\n" // Empty reserves 2 lines
+		hoverText = "\n\n\n\n" // Empty reserves 4 lines
 	}
 
 	hoverBox := lipgloss.NewStyle().
@@ -512,7 +537,7 @@ func (m *FilePickerModel) View() string {
 	if m.err != nil {
 		errText = lipgloss.NewStyle().Foreground(ColorError).Render(" " + m.err.Error())
 	}
-	searchContent := lipgloss.NewStyle().Width(m.width - 4).Render(m.searchInput.View() + errText)
+	searchContent := lipgloss.NewStyle().Width(leftWidth + rightWidth + 2 - 4).Render(m.searchInput.View() + errText)
 	searchPane := sPaneStyle.Render(searchContent)
 
 	body := lipgloss.JoinVertical(lipgloss.Left, mainContent, searchPane)
