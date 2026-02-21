@@ -195,6 +195,24 @@ func DetectDarkBackground() bool {
 // ── Style Rebuilder ───────────────────────────────────────────────────────────
 
 func rebuildStyles() {
+	BannerStyle = lipgloss.NewStyle().
+		Foreground(ColorPrimary).
+		Bold(true).
+		Align(lipgloss.Center).
+		Padding(1, 2).
+		MarginBottom(1)
+
+	TaglineStyle = lipgloss.NewStyle().
+		Foreground(ColorSubtext).
+		Italic(true).
+		Align(lipgloss.Center)
+
+	SectionHeaderStyle = lipgloss.NewStyle().
+		Foreground(ColorPrimary).
+		Bold(true).
+		Padding(1, 4).
+		Align(lipgloss.Center)
+
 	TitleStyle = lipgloss.NewStyle().
 		Foreground(ColorPrimary).
 		Bold(true).
@@ -310,6 +328,24 @@ func rebuildStyles() {
 // Initialized with dark palette defaults. rebuildStyles() overwrites them.
 
 var (
+	BannerStyle = lipgloss.NewStyle().
+			Foreground(ColorPrimary).
+			Bold(true).
+			Align(lipgloss.Center).
+			Padding(1, 2).
+			MarginBottom(1)
+
+	TaglineStyle = lipgloss.NewStyle().
+			Foreground(ColorSubtext).
+			Italic(true).
+			Align(lipgloss.Center)
+
+	SectionHeaderStyle = lipgloss.NewStyle().
+				Foreground(ColorPrimary).
+				Bold(true).
+				Padding(1, 4).
+				Align(lipgloss.Center)
+
 	TitleStyle = lipgloss.NewStyle().
 			Foreground(ColorPrimary).
 			Bold(true).

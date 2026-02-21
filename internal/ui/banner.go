@@ -11,26 +11,6 @@ const jendBannerRaw = `
 ╚█████╔╝███████╗██║ ╚████║██████╔╝
  ╚════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝`
 
-var (
-	BannerStyle = lipgloss.NewStyle().
-			Foreground(ColorPrimary).
-			Bold(true).
-			Align(lipgloss.Center).
-			Padding(1, 2).
-			MarginBottom(1)
-
-	TaglineStyle = lipgloss.NewStyle().
-			Foreground(ColorSubtext).
-			Italic(true).
-			Align(lipgloss.Center)
-
-	SectionHeaderStyle = lipgloss.NewStyle().
-				Foreground(ColorPrimary).
-				Bold(true).
-				Padding(1, 4).
-				Align(lipgloss.Center)
-)
-
 // RenderBanner returns the full styled JEND ASCII art banner.
 func RenderBanner() string {
 	return BannerStyle.Render(jendBannerRaw)
