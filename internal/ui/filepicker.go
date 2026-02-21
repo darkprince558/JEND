@@ -86,10 +86,12 @@ type FilePickerModel struct {
 	selectedFiles map[string]fileItem
 
 	// State
-	quitting bool
-	err      error
-	width    int
-	height   int
+	quitting   bool
+	err        error
+	width      int
+	height     int
+	termWidth  int
+	termHeight int
 }
 
 // Custom styles for the file picker
@@ -123,12 +125,9 @@ func NewFilePickerModel(directoryMode bool, previousPaths []string) *FilePickerM
 	// Setup Staging List (Right Pane)
 	sl := list.New([]list.Item{}, stagedDelegate{width: 20}, 0, 0)
 	sl.Title = "Selected to Send"
-	sl.Styles.Title = lipgloss.NewStyle().
-		Background(ColorAccent).
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Padding(0, 1). // Minimal padding for the actual text block
-		Bold(true)
-	sl.SetShowTitle(true) // Bubbles defaults title left, we center the wrapper lower down
+	sl.Styles.Title = bl.Styles.Title.Copy()
+	sl.Styles.TitleBar = sl.Styles.TitleBar.PaddingBottom(1) // Single extra space between title and list items
+	sl.SetShowTitle(true)                                    // Bubbles defaults title left, we center the wrapper lower down
 	sl.SetShowStatusBar(false)
 	sl.SetShowFilter(false)
 	sl.SetShowHelp(false)
@@ -242,7 +241,17 @@ func (m *FilePickerModel) Init() tea.Cmd {
 func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
+		m.termWidth = msg.Width
+		m.termHeight = msg.Height
+
+		// Shrink the file picker to roughly half the terminal width
+		m.width = m.termWidth / 2
+		if m.width < 90 {
+			m.width = 90 // Sane lower bounds so compact mode triggers or it remains legible
+		}
+		if m.width > m.termWidth {
+			m.width = m.termWidth // Can't exceed screen
+		}
 		m.height = msg.Height
 
 		bannerHeight := lipgloss.Height(RenderBanner())
@@ -632,7 +641,9 @@ func (m *FilePickerModel) View() string {
 	footer := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true).Align(lipgloss.Left).Render("tab switch pane  ·  space toggle item  ·  enter confirm  ·  / search")
 
 	fullPage := lipgloss.JoinVertical(lipgloss.Left, banner, subtitle, body, "\n", footer)
-	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, fullPage)
+
+	// Center the constrained-width UI within the actual available terminal screen real estate
+	return lipgloss.Place(m.termWidth, m.termHeight, lipgloss.Center, lipgloss.Top, fullPage)
 }
 
 // RunFilePicker returns active file paths to be bundled/sent.
