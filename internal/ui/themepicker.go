@@ -9,10 +9,11 @@ import (
 )
 
 // ThemeOrder defines the display order of themes in the picker.
-var ThemeOrder = []string{"dark", "light", "dracula", "nord", "catppuccin", "solarized"}
+var ThemeOrder = []string{"auto", "dark", "light", "dracula", "nord", "catppuccin", "solarized"}
 
 // themeDescriptions are one-line summaries shown in the picker.
 var themeDescriptions = map[string]string{
+	"auto":       "Auto-detect — matches your terminal background",
 	"dark":       "Default JEND dark — purple & cyan on near-black",
 	"light":      "Crisp light — deep purple on macOS-style white",
 	"dracula":    "Dracula — lavender & green on deep charcoal",
@@ -132,11 +133,11 @@ func (m ThemePickerModel) View() string {
 			nameStr = lipgloss.NewStyle().
 				Foreground(lipgloss.Color(tp.Primary)).
 				Bold(true).
-				Render("▶ " + strings.ToUpper(name))
+				Render("> > " + strings.ToUpper(name))
 		} else {
 			nameStr = lipgloss.NewStyle().
 				Foreground(lipgloss.Color(p.Subtext)).
-				Render("  " + name)
+				Render("  > " + name)
 		}
 
 		// Saved indicator
@@ -151,17 +152,19 @@ func (m ThemePickerModel) View() string {
 		swatches := renderSwatches(tp)
 
 		row := lipgloss.JoinHorizontal(lipgloss.Top,
-			lipgloss.NewStyle().Width(22).Render(nameStr+savedBadge),
-			lipgloss.NewStyle().Width(20).Render(swatches),
+			lipgloss.NewStyle().Width(24).Render(nameStr+savedBadge),
+			lipgloss.NewStyle().Width(18).Render(swatches),
 		)
+
+		// Fix stray highlight: fill row to exact width before background
+		fullRow := lipgloss.NewStyle().Width(42).Render(row)
 
 		if selected {
 			listRows = append(listRows, lipgloss.NewStyle().
 				Background(lipgloss.Color(p.Panel)).
-				Padding(0, 1).
-				Render(row))
+				Render(fullRow))
 		} else {
-			listRows = append(listRows, lipgloss.NewStyle().Padding(0, 1).Render(row))
+			listRows = append(listRows, lipgloss.NewStyle().Render(fullRow))
 		}
 	}
 	list := strings.Join(listRows, "\n")
@@ -178,7 +181,7 @@ func (m ThemePickerModel) View() string {
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(p.Subtext)).
 		Faint(true).
-		Render("  j/k or ↑↓ navigate   enter select   q cancel")
+		Render("  j/k or ↑↓ navigate · enter select · esc quit")
 
 	// ── Assemble ──────────────────────────────────────────────────────────
 	var s strings.Builder
@@ -206,8 +209,15 @@ func (m ThemePickerModel) View() string {
 // renderSwatches renders a compact row of colored block characters
 // representing the key palette colors for a given theme.
 func renderSwatches(p ThemePalette) string {
+	// If auto, we don't have a real palette, just return grey dots
+	if p.Primary == "" {
+		block := "▒▒"
+		s := lipgloss.NewStyle().Foreground(ColorSubtext).Render(block)
+		return s + s + s + s + s
+	}
+
 	block := "██"
-	// Show: primary, secondary, accent, error, text/bg as swatches
+	// Show: primary, secondary, accent, error, warning as swatches
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)).Render(block) +
 		lipgloss.NewStyle().Foreground(lipgloss.Color(p.Secondary)).Render(block) +
 		lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)).Render(block) +
@@ -230,6 +240,36 @@ func renderThemePreview(p ThemePalette, name string) string {
 		Background(lipgloss.Color(p.Panel)).
 		Foreground(lipgloss.Color(p.Text)).
 		Padding(0, 2)
+
+	// If auto, resolve to either dark or light for the preview
+	if name == "auto" {
+		if DetectDarkBackground() {
+			p = NamedThemes["dark"]
+			primaryStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)).Bold(true)
+			secondaryStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Secondary))
+			accentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)).Bold(true)
+			subtextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Subtext)).Faint(true)
+			textStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text))
+			errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error))
+			panelStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color(p.Panel)).
+				Foreground(lipgloss.Color(p.Text)).
+				Padding(0, 2)
+		} else {
+			p = NamedThemes["light"]
+			primaryStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Primary)).Bold(true)
+			secondaryStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Secondary))
+			accentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Accent)).Bold(true)
+			// Light mode doesn't use faint for subtext
+			subtextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Subtext))
+			textStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Text))
+			errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.Error))
+			panelStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color(p.Panel)).
+				Foreground(lipgloss.Color(p.Text)).
+				Padding(0, 2)
+		}
+	}
 
 	desc := themeDescriptions[name]
 

@@ -39,127 +39,14 @@ func (i fileItem) Title() string {
 	return i.name
 }
 
-func (i fileItem) Description() string { return "" }
+func (i fileItem) Description() string {
+	return "" // Descriptions disabled for compactness
+}
+
 func (i fileItem) FilterValue() string { return i.name }
 
-// ── File Icon Helper ──
-
-func fileIcon(name string, isDir bool) string {
-	if name == ".." {
-		return ".."
-	}
-	if isDir {
-		return "/"
-	}
-	ext := strings.ToLower(filepath.Ext(name))
-	switch ext {
-	case ".go", ".py", ".js", ".ts", ".rs", ".c", ".cpp", ".java", ".rb", ".sh":
-		return "*"
-	case ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".bmp":
-		return "~"
-	case ".mp4", ".mov", ".avi", ".mkv", ".webm":
-		return "~"
-	case ".mp3", ".wav", ".flac", ".aac", ".ogg":
-		return "~"
-	case ".zip", ".tar", ".gz", ".rar", ".7z", ".bz2":
-		return "#"
-	case ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".pptx", ".txt", ".md":
-		return "="
-	default:
-		return "."
-	}
-}
-
-// ── Browser Delegate (custom rendering with > and >> cursors) ──
-
-type browserDelegate struct {
-	width         int
-	selectedFiles map[string]fileItem
-}
-
-func (d browserDelegate) Height() int                             { return 1 }
-func (d browserDelegate) Spacing() int                            { return 0 }
-func (d browserDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-
-func (d browserDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	item, ok := listItem.(fileItem)
-	if !ok {
-		return
-	}
-
-	isSelected := index == m.Index()
-	_, isStaged := d.selectedFiles[item.path]
-
-	// Build the icon
-	icon := fileIcon(item.name, item.isDir)
-
-	// Build the name
-	name := item.name
-	if item.isDir && item.name != ".." {
-		name = name + "/"
-	}
-
-	// Truncate long names
-	maxNameLen := d.width - 30
-	if maxNameLen < 15 {
-		maxNameLen = 15
-	}
-	if len(name) > maxNameLen {
-		name = name[:maxNameLen-3] + "..."
-	}
-
-	// Size column (right-aligned)
-	sizeStr := ""
-	if !item.isDir && item.name != ".." {
-		sizeStr = FormatBytes(item.size)
-	}
-
-	// Date column
-	dateStr := ""
-	if item.name != ".." {
-		dateStr = item.modTime.Format("Jan 02 15:04")
-	}
-
-	// Build the cursor prefix
-	var prefix string
-	if isSelected {
-		prefix = ">>"
-	} else {
-		prefix = " >"
-	}
-
-	// Staged marker
-	staged := " "
-	if isStaged {
-		staged = "+"
-	}
-
-	// Build the full line
-	line := fmt.Sprintf(" %s %s %s %-*s  %8s  %s",
-		prefix, staged, icon, maxNameLen, name, sizeStr, dateStr)
-
-	// Apply styling
-	var style lipgloss.Style
-	if isSelected {
-		if item.isDir {
-			style = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-		} else {
-			style = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
-		}
-	} else if isStaged {
-		style = lipgloss.NewStyle().Foreground(ColorSecondary)
-	} else if item.isDir {
-		style = lipgloss.NewStyle().Foreground(ColorPrimary)
-	} else {
-		style = lipgloss.NewStyle().Foreground(ColorSubtext)
-	}
-
-	rendered := style.Width(d.width).Render(line)
-	fmt.Fprint(w, rendered)
-}
-
-// ── Staging Delegate ──
-
+// stagedDelegate is a custom delegate for the staging (right) pane. It renders items
+// left-aligned with a > cursor.
 type stagedDelegate struct{ width int }
 
 func (d stagedDelegate) Height() int                             { return 1 }
@@ -171,24 +58,20 @@ func (d stagedDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 		return
 	}
 
-	icon := fileIcon(i.name, i.isDir)
-	name := i.Title()
-	size := ""
-	if !i.isDir {
-		size = FormatBytes(i.size)
-	}
+	str := i.Title()
+
+	wFn := lipgloss.NewStyle().Width(d.width).Align(lipgloss.Left).PaddingLeft(2).Render
 
 	if index == m.Index() {
-		line := fmt.Sprintf(" >> %s %s  %s", icon, name, size)
-		fmt.Fprint(w, lipgloss.NewStyle().Width(d.width).Foreground(ColorAccent).Bold(true).Render(line))
+		// Active (space + >> + space = 4 chars wide)
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(" >> "+str)))
 	} else {
-		line := fmt.Sprintf("  > %s %s  %s", icon, name, size)
-		fmt.Fprint(w, lipgloss.NewStyle().Width(d.width).Foreground(ColorText).Render(line))
+		// Inactive (3 spaces + > = 4 chars wide)
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render("   >"+str)))
 	}
 }
 
-// ── FilePickerModel ──
-
+// FilePickerModel handles the dual-pane file selection
 type FilePickerModel struct {
 	browserList   list.Model
 	stagingList   list.Model
@@ -199,7 +82,7 @@ type FilePickerModel struct {
 	activePane  activePane
 	compactMode bool
 
-	// Multi-select tracking
+	// Multi-select tracking: map of absolute path to fileItem
 	selectedFiles map[string]fileItem
 
 	// State
@@ -209,12 +92,9 @@ type FilePickerModel struct {
 	height     int
 	termWidth  int
 	termHeight int
-
-	// Show hidden files
-	showHidden bool
 }
 
-// Custom styles
+// Custom styles for the file picker
 var (
 	paneBorder          = lipgloss.RoundedBorder()
 	activeBorder        = lipgloss.NewStyle().Border(paneBorder).BorderForeground(ColorAccent)
@@ -230,27 +110,34 @@ func NewFilePickerModel(directoryMode bool, previousPaths []string) *FilePickerM
 	}
 	abs, _ := filepath.Abs(cwd)
 
-	// Setup Browser List (Left Pane) — custom delegate
-	bl := list.New([]list.Item{}, browserDelegate{width: 40}, 0, 0)
-	bl.Title = abs
+	// Setup Browser List (Left Pane)
+	browserDelegate := list.NewDefaultDelegate()
+	browserDelegate.ShowDescription = false // Compact spacing
+	browserDelegate.SetSpacing(0)
+	browserDelegate.Styles.SelectedTitle = browserDelegate.Styles.SelectedTitle.Foreground(ColorAccent).BorderLeftForeground(ColorAccent)
+
+	bl := list.New([]list.Item{}, browserDelegate, 0, 0)
+	bl.Title = "Directory: " + abs
 	bl.SetShowStatusBar(false)
-	bl.SetShowFilter(false)
+	bl.SetShowFilter(false) // Custom Spotlight instead
 	bl.SetShowHelp(false)
-	bl.SetShowTitle(false) // We render our own breadcrumb
+	// Remap default list quit key from 'q' to 'esc'
+	bl.KeyMap.Quit.SetKeys("esc", "ctrl+c")
 
 	// Setup Staging List (Right Pane)
 	sl := list.New([]list.Item{}, stagedDelegate{width: 20}, 0, 0)
-	sl.Title = "Selected"
-	sl.Styles.Title = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
-	sl.Styles.TitleBar = sl.Styles.TitleBar.PaddingBottom(1)
-	sl.SetShowTitle(true)
+	sl.Title = "Selected to Send"
+	sl.Styles.Title = bl.Styles.Title.Copy()
+	sl.Styles.TitleBar = sl.Styles.TitleBar.PaddingBottom(1) // Single extra space between title and list items
+	sl.SetShowTitle(true)                                    // Bubbles defaults title left, we center the wrapper lower down
 	sl.SetShowStatusBar(false)
 	sl.SetShowFilter(false)
 	sl.SetShowHelp(false)
+	sl.KeyMap.Quit.SetKeys("esc", "ctrl+c")
 
-	// Setup Search
+	// Setup Spotlight Search
 	ti := textinput.New()
-	ti.Placeholder = "[ / to search ]"
+	ti.Placeholder = "[ / to Spotlight Search ]"
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 	ti.TextStyle = lipgloss.NewStyle().Foreground(ColorText)
 	ti.Cursor.Style = lipgloss.NewStyle().Foreground(ColorAccent)
@@ -302,10 +189,6 @@ func (m *FilePickerModel) readDir(dir string) {
 
 	var dirs, files []fileItem
 	for _, entry := range entries {
-		// Skip hidden files unless toggle is on
-		if !m.showHidden && strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
 		info, err := entry.Info()
 		if err != nil {
 			continue
@@ -335,12 +218,13 @@ func (m *FilePickerModel) readDir(dir string) {
 	}
 
 	m.browserList.SetItems(items)
-	m.browserList.Title = dir
+	m.browserList.Title = "Directory: " + dir
 	m.browserList.ResetSelected()
 }
 
 func (m *FilePickerModel) refreshStagingList() {
 	var items []list.Item
+	// To preserve ordering predictability, sort by path
 	var paths []string
 	for p := range m.selectedFiles {
 		paths = append(paths, p)
@@ -363,19 +247,22 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.termWidth = msg.Width
 		m.termHeight = msg.Height
 
-		m.width = (m.termWidth / 2) + 20
+		// Shrink the file picker to roughly half the terminal width
+		m.width = m.termWidth / 2
 		if m.width < 90 {
-			m.width = 90
+			m.width = 90 // Sane lower bounds so compact mode triggers or it remains legible
 		}
 		if m.width > m.termWidth {
-			m.width = m.termWidth
+			m.width = m.termWidth // Can't exceed screen
 		}
 		m.height = msg.Height
 
 		bannerHeight := lipgloss.Height(RenderBanner())
-		subtitleHeight := 2 // breadcrumb + gap
-		footerHeight := 2
+		subtitleHeight := lipgloss.Height(SectionHeaderStyle.Render(">> File picker <<"))
+		footerHeight := lipgloss.Height("tab switch pane") // Safely calculate exact requested footer height
 
+		// Determine the vertical room we have for the lists
+		// Subtract an extra 1 for the prompt/status bar of the terminal itself
 		availableHeight := m.height - bannerHeight - subtitleHeight - footerHeight - 1
 		if availableHeight < 10 {
 			availableHeight = 10
@@ -386,11 +273,23 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.compactMode = m.width < 90
 
+		// The file picker takes exactly half the screen plus 20 characters (10 per pane)
+		m.width = (m.termWidth / 2) + 20
+		if m.width < 90 {
+			m.width = 90 // Sane lower bounds so compact mode triggers or it remains legible
+		}
+		if m.width > m.termWidth {
+			m.width = m.termWidth // Can't exceed screen
+		}
+
+		m.compactMode = m.width < 90
+
 		var leftWidth, rightWidth int
 		if m.compactMode {
 			leftWidth = 0
 			rightWidth = m.width - 2
 		} else {
+			// Make File Selection (left) and Selected (right) panes exactly equal width
 			paneWidth := (m.width - 2) / 2
 			leftWidth = paneWidth
 			rightWidth = m.width - leftWidth - 2
@@ -398,26 +297,30 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if !m.compactMode {
 			m.browserList.SetSize(leftWidth-4, listHeight-2)
-			m.browserList.SetDelegate(browserDelegate{
-				width:         leftWidth - 6,
-				selectedFiles: m.selectedFiles,
-			})
 		}
 
+		// The overall height of the content block in the right pane should be exactly (listHeight - 2)
+		// We subtract 6 for the hover box (4 lines text + 2 padding/borders), so stagingList height gets (listHeight - 8)
 		m.stagingList.SetSize(rightWidth-4, listHeight-8)
+
+		// Update custom delegate width
 		m.stagingList.SetDelegate(stagedDelegate{width: rightWidth - 6})
+
+		// The title sits inside the list, if we want it strictly centered within the right pane:
 		m.stagingList.Styles.TitleBar = lipgloss.NewStyle().Width(rightWidth - 4).Align(lipgloss.Center)
 
+		// Search bar width MUST match exactly (leftPane total + rightPane total)
 		if m.compactMode {
 			m.searchInput.Width = rightWidth - 4
 		} else {
 			m.searchInput.Width = leftWidth + rightWidth + 2 - 4
 		}
 
+		// If we shrunk into compact mode while focus was on Browser, shift focus to Search
 		if m.compactMode && m.activePane == PaneBrowser {
 			m.activePane = PaneSearch
 			m.searchInput.Focus()
-			m.searchInput.Placeholder = "Search files, or paste path..."
+			m.searchInput.Placeholder = "Search files, or paste path to navigate..."
 		}
 		return m, nil
 
@@ -425,6 +328,7 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Switch Panes with Tab
 		if msg.String() == "tab" || msg.String() == "shift+tab" {
 			if m.compactMode {
+				// Only toggle between Search and Staging
 				if m.activePane == PaneSearch {
 					m.activePane = PaneStaging
 				} else {
@@ -440,13 +344,19 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// Setup visual cues
 			if m.activePane == PaneSearch {
 				m.searchInput.Focus()
-				m.searchInput.Placeholder = "Search files, or paste path..."
+				m.searchInput.Placeholder = "Search files, or paste path to navigate..."
 			} else {
 				m.searchInput.Blur()
-				m.searchInput.Placeholder = "[ / to search ]"
+				m.searchInput.Placeholder = "[ / to Spotlight Search ]"
+				if m.activePane == PaneStaging {
+					// We only want to focus staging if there are items, otherwise bounce
+					// But we will allow it to visually show the border jump even if empty.
+				}
 			}
+			m.browserList.SetShowTitle(m.activePane == PaneBrowser)
 			return m, nil
 		}
 
@@ -475,20 +385,27 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if m.compactMode {
 								m.searchInput.SetValue("")
 							}
-						} else if m.compactMode && !m.directoryMode {
-							if _, exists := m.selectedFiles[path]; !exists {
-								item := fileItem{
-									name:    filepath.Base(path),
-									path:    path,
-									isDir:   false,
-									size:    info.Size(),
-									modTime: info.ModTime(),
+						} else {
+							// If it's a file, and we are in compact mode, add it directly!
+							if m.compactMode && !m.directoryMode {
+								if _, exists := m.selectedFiles[path]; !exists {
+									item := fileItem{
+										name:    filepath.Base(path),
+										path:    path,
+										isDir:   false,
+										size:    info.Size(),
+										modTime: info.ModTime(),
+									}
+									m.selectedFiles[path] = item
+									m.refreshStagingList()
+									m.searchInput.SetValue("")
 								}
-								m.selectedFiles[path] = item
-								m.refreshStagingList()
-								m.searchInput.SetValue("")
 							}
 						}
+					}
+				} else {
+					if !m.compactMode {
+						m.browserList.SetShowFilter(true)
 					}
 				}
 
@@ -504,7 +421,7 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Global keys
+		// Handle Global / Quitting keys
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			m.quitting = true
@@ -513,11 +430,7 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activePane = PaneSearch
 			m.searchInput.Focus()
 			return m, textinput.Blink
-		case ".":
-			// Toggle hidden files
-			m.showHidden = !m.showHidden
-			m.readDir(m.currentDir)
-			return m, nil
+		// Pass page down/up to active list regardless of pane
 		case "pgdown", "ctrl+down", "ctrl+d":
 			if m.activePane == PaneBrowser {
 				m.browserList.Paginator.NextPage()
@@ -537,17 +450,12 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Pane specific keys
 		if m.activePane == PaneStaging {
 			switch msg.String() {
-			case " ": // Unstage
+			case " ": // Unstage toggle
 				if item, ok := m.stagingList.SelectedItem().(fileItem); ok {
 					delete(m.selectedFiles, item.path)
 					m.refreshStagingList()
-					// Update browser delegate so staged markers refresh
-					m.browserList.SetDelegate(browserDelegate{
-						width:         m.browserList.Width(),
-						selectedFiles: m.selectedFiles,
-					})
 				}
-			case "enter":
+			case "enter": // Submit regardless of pane
 				if len(m.selectedFiles) > 0 {
 					m.quitting = true
 					return m, tea.Quit
@@ -561,7 +469,7 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activePane == PaneBrowser {
 			switch msg.String() {
 			case " ":
-				// Toggle selection
+				// Toggle Selection
 				if item, ok := m.browserList.SelectedItem().(fileItem); ok {
 					if item.name == ".." {
 						return m, nil
@@ -579,24 +487,24 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.selectedFiles[item.path] = item
 					}
 					m.refreshStagingList()
-					// Update the browser delegate with new selection state
-					m.browserList.SetDelegate(browserDelegate{
-						width:         m.browserList.Width(),
-						selectedFiles: m.selectedFiles,
-					})
 				}
 				return m, nil
 			case "enter":
 				if item, ok := m.browserList.SelectedItem().(fileItem); ok {
 					if item.isDir {
+						// Navigate into directory
 						m.currentDir = item.path
 						m.browserList.ResetSelected()
 						m.readDir(m.currentDir)
 						return m, nil
-					} else if !m.directoryMode {
-						m.selectedFiles[item.path] = item
-						m.quitting = true
-						return m, tea.Quit
+					} else {
+						if !m.directoryMode {
+							// If we hit enter on a file, and staging is empty, send just this file
+							// If someone already staged items via spacebar, just stage this and submit.
+							m.selectedFiles[item.path] = item
+							m.quitting = true
+							return m, tea.Quit
+						}
 					}
 				}
 			case "left", "h":
@@ -630,10 +538,13 @@ func (m *FilePickerModel) View() string {
 	}
 
 	banner := RenderBanner()
+	subtitle := SectionHeaderStyle.Render(">> File picker <<")
+
 	bannerHeight := lipgloss.Height(banner)
+	subtitleHeight := lipgloss.Height(subtitle)
 	footerHeight := 2
 
-	availableHeight := m.height - bannerHeight - 3 - footerHeight - 1 // 3 = breadcrumb + gap
+	availableHeight := m.height - bannerHeight - subtitleHeight - footerHeight - 1
 	if availableHeight < 10 {
 		return "Terminal too small"
 	}
@@ -646,15 +557,13 @@ func (m *FilePickerModel) View() string {
 		leftWidth = 0
 		rightWidth = m.width - 2
 	} else {
+		// Sync with Update logic
 		paneWidth := (m.width - 2) / 2
 		leftWidth = paneWidth
 		rightWidth = m.width - leftWidth - 2
 	}
 
-	// ── Breadcrumb ──
-	breadcrumb := m.renderBreadcrumb()
-
-	// ── Left Pane (Browser) ──
+	// Render Left Pane
 	var leftPane string
 	if !m.compactMode {
 		leftPaneStyle := inactiveBorder
@@ -665,36 +574,25 @@ func (m *FilePickerModel) View() string {
 		leftPane = leftPaneStyle.Render(leftContent)
 	}
 
-	// ── Right Pane (Staging + Preview) ──
+	// Render Right Pane
 	rightPaneStyle := inactiveBorder
 	if m.activePane == PaneStaging {
 		rightPaneStyle = activeBorder
 	}
 
-	// Staging title with count + total size
-	var totalSize int64
-	for _, f := range m.selectedFiles {
-		totalSize += f.size
-	}
-	stagingTitle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).
-		Render(fmt.Sprintf("Selected (%d)", len(m.selectedFiles)))
-	if len(m.selectedFiles) > 0 {
-		stagingTitle += lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true).
-			Render(fmt.Sprintf("  %s total", FormatBytes(totalSize)))
-	}
-
 	listStr := m.stagingList.View()
 	if len(m.selectedFiles) == 0 {
+		// Override empty list output to look a bit friendlier
 		listStr = lipgloss.NewStyle().
 			Width(rightWidth - 6).
 			Height(m.stagingList.Height()).
 			Align(lipgloss.Center).
 			Foreground(ColorSubtext).
 			Faint(true).
-			Render("No files selected.\n\nPress space in the\nbrowser to add files.")
+			Render("No files mapped.\nPress Space in the\nbrowser to pin files.")
 	}
 
-	// Hover metadata
+	// Hover View Metadata Box
 	hoverText := ""
 	if item, ok := m.stagingList.SelectedItem().(fileItem); ok && len(m.selectedFiles) > 0 {
 		fileType := "File"
@@ -704,13 +602,13 @@ func (m *FilePickerModel) View() string {
 			fileType = strings.TrimPrefix(ext, ".") + " file"
 		}
 
-		hoverText = fmt.Sprintf("Path  %s\nSize  %s\nMod   %s\nType  %s",
+		hoverText = fmt.Sprintf("Path: %s\nSize: %s\nMod: %s\nType: %s",
 			filepath.Base(item.path),
 			FormatBytes(item.size),
 			item.modTime.Format("Jan 02, 15:04"),
 			fileType)
 	} else {
-		hoverText = "\n\n\n\n"
+		hoverText = "\n\n\n\n" // Empty reserves 4 lines
 	}
 
 	hoverBox := lipgloss.NewStyle().
@@ -720,19 +618,16 @@ func (m *FilePickerModel) View() string {
 		Align(lipgloss.Left).
 		PaddingLeft(2).
 		BorderTop(true).
-		BorderForeground(ColorPanel).
+		BorderForeground(ColorSubtext).
 		BorderStyle(lipgloss.NormalBorder()).
 		Render(hoverText)
 
-	rightContent := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().PaddingLeft(2).PaddingBottom(1).Render(stagingTitle),
-		listStr,
-		hoverBox,
-	)
+	rightContent := lipgloss.JoinVertical(lipgloss.Center, listStr, hoverBox)
+	// Force block height so borders don't jump
 	rightContent = lipgloss.NewStyle().Width(rightWidth - 4).Height(listHeight - 2).Render(rightContent)
 	rightPane := rightPaneStyle.Render(rightContent)
 
-	// ── Combine Panes ──
+	// Combine Panes
 	var mainContent string
 	if m.compactMode {
 		mainContent = rightPane
@@ -740,7 +635,7 @@ func (m *FilePickerModel) View() string {
 		mainContent = lipgloss.JoinHorizontal(lipgloss.Top, leftPane, "  ", rightPane)
 	}
 
-	// ── Search Bar ──
+	// Search Pane
 	sPaneStyle := searchInactiveStyle
 	if m.activePane == PaneSearch {
 		sPaneStyle = searchActiveStyle
@@ -758,67 +653,24 @@ func (m *FilePickerModel) View() string {
 		totalTopWidth = leftWidth + rightWidth + 2
 	}
 
-	searchContent := lipgloss.NewStyle().Width(totalTopWidth - 2).Render(m.searchInput.View() + errText)
+	searchContent := lipgloss.NewStyle().Width(totalTopWidth - 2).Render(m.searchInput.View() + errText) // -2 for borders
 	searchPane := sPaneStyle.Width(totalTopWidth - 2).Render(searchContent)
 
 	body := lipgloss.JoinVertical(lipgloss.Left, mainContent, searchPane)
 
-	// ── Footer ──
-	hiddenLabel := "off"
-	if m.showHidden {
-		hiddenLabel = "on"
-	}
-	footer := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true).Align(lipgloss.Left).
-		Render(fmt.Sprintf("tab pane  ·  space select  ·  enter confirm  ·  / search  ·  . hidden(%s)  ·  esc quit", hiddenLabel))
+	// Footer Instructions
+	footer := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true).Align(lipgloss.Left).Render("tab switch pane  ·  space toggle item  ·  enter confirm  ·  / search")
 
-	// ── Assemble ──
-	fullPage := lipgloss.JoinVertical(lipgloss.Left, banner, breadcrumb, body, footer)
+	// Pre-join everything exactly
+	fullPage := lipgloss.JoinVertical(lipgloss.Left, banner, subtitle, body, footer)
 
+	// Force the full page to never exceed the requested terminal m.height, truncating any 1-off lines that cause scrolls
 	if lipgloss.Height(fullPage) > m.height-1 {
 		fullPage = lipgloss.NewStyle().MaxHeight(m.height - 1).Render(fullPage)
 	}
 
+	// Return top-left aligned, do not center
 	return fullPage
-}
-
-// renderBreadcrumb creates a clickable-looking path breadcrumb
-func (m *FilePickerModel) renderBreadcrumb() string {
-	home, _ := os.UserHomeDir()
-	dir := m.currentDir
-
-	// Replace home dir with ~
-	display := dir
-	if home != "" && strings.HasPrefix(dir, home) {
-		display = "~" + dir[len(home):]
-	}
-
-	parts := strings.Split(display, "/")
-	var rendered []string
-	for i, p := range parts {
-		if p == "" && i == 0 {
-			p = "/"
-		}
-		if p == "" {
-			continue
-		}
-		if i == len(parts)-1 {
-			// Current directory — highlighted
-			rendered = append(rendered, lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(p))
-		} else {
-			rendered = append(rendered, lipgloss.NewStyle().Foreground(ColorSubtext).Render(p))
-		}
-	}
-
-	sep := lipgloss.NewStyle().Foreground(ColorPanel).Render(" / ")
-	breadcrumb := strings.Join(rendered, sep)
-
-	// Item count
-	itemCount := len(m.browserList.Items())
-	countStr := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true).
-		Render(fmt.Sprintf("  (%d items)", itemCount))
-
-	return lipgloss.NewStyle().PaddingLeft(1).MarginBottom(1).
-		Render(breadcrumb + countStr)
 }
 
 // RunFilePicker returns active file paths to be bundled/sent.
