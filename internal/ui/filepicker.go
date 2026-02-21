@@ -60,14 +60,14 @@ func (d stagedDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 
 	str := i.Title()
 
-	wFn := lipgloss.NewStyle().Width(d.width).Align(lipgloss.Left).Render
+	wFn := lipgloss.NewStyle().Width(d.width).Align(lipgloss.Left).PaddingLeft(2).Render
 
 	if index == m.Index() {
-		// Active
+		// Active (>> is 2 chars + 1 space = 3 chars wide)
 		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(">> "+str)))
 	} else {
-		// Inactive
-		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render("> "+str)))
+		// Inactive (> is 1 char + 2 spaces = 3 chars wide, so text stays completely static!)
+		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render(">  "+str)))
 	}
 }
 
@@ -122,6 +122,12 @@ func NewFilePickerModel(directoryMode bool, previousPaths []string) *FilePickerM
 	// Setup Staging List (Right Pane)
 	sl := list.New([]list.Item{}, stagedDelegate{width: 20}, 0, 0)
 	sl.Title = "Selected to Send"
+	sl.Styles.Title = lipgloss.NewStyle().
+		Background(ColorAccent).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(0, 1). // Minimal padding for the actual text block
+		Bold(true)
+	sl.SetShowTitle(true) // Bubbles defaults title left, we center the wrapper lower down
 	sl.SetShowStatusBar(false)
 	sl.SetShowFilter(false)
 	sl.SetShowHelp(false)
@@ -261,7 +267,16 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update custom delegate width
 		m.stagingList.SetDelegate(stagedDelegate{width: rightWidth - 6})
 
-		m.searchInput.Width = leftWidth + rightWidth + 2 - 4 // Total combined pane width minus borders
+		// The title sits inside the list, if we want it strictly centered within the right pane:
+		m.stagingList.Styles.TitleBar = lipgloss.NewStyle().Width(rightWidth - 4).Align(lipgloss.Center)
+
+		// Search bar width MUST match exactly (leftPane total + rightPane total)
+		// leftPane takes `leftWidth` + borders (+2? Wait, the border is applied via Style)
+		// No, `leftWidth` IS the designated total exterior width of the left pane including borders!
+		// (width/70, rightWidth = width - leftWidth - 2 gaps)
+		// So total width = leftWidth + rightWidth + 2.
+		// searchContent width should be that total, minus its own 2 border characters!
+		m.searchInput.Width = leftWidth + rightWidth + 2 - 4 // Actually, lipgloss strings usually just pad. Textinput needs internal width.
 		return m, nil
 
 	case tea.KeyMsg:
@@ -512,8 +527,8 @@ func (m *FilePickerModel) View() string {
 		Width(rightWidth - 4).
 		Foreground(ColorSubtext).
 		Faint(true).
-		Align(lipgloss.Center).
-		PaddingTop(1).
+		Align(lipgloss.Left).
+		PaddingLeft(2).
 		BorderTop(true).
 		BorderForeground(ColorSubtext).
 		BorderStyle(lipgloss.NormalBorder()).
@@ -537,8 +552,11 @@ func (m *FilePickerModel) View() string {
 	if m.err != nil {
 		errText = lipgloss.NewStyle().Foreground(ColorError).Render(" " + m.err.Error())
 	}
-	searchContent := lipgloss.NewStyle().Width(leftWidth + rightWidth + 2 - 4).Render(m.searchInput.View() + errText)
-	searchPane := sPaneStyle.Render(searchContent)
+
+	totalTopWidth := leftWidth + rightWidth + 2
+
+	searchContent := lipgloss.NewStyle().Width(totalTopWidth - 2).Render(m.searchInput.View() + errText) // -2 for borders
+	searchPane := sPaneStyle.Width(totalTopWidth - 2).Render(searchContent)
 
 	body := lipgloss.JoinVertical(lipgloss.Left, mainContent, searchPane)
 
