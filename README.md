@@ -38,11 +38,12 @@ JEND assumes the network is compromised. Every decision was made to ensure data 
 
 ### 3. Network Traversal: ICE & Custom Relays
 
-Direct P2P connectivity is blocked by most NATs.
+Direct P2P connectivity is blocked by most NATs, and strict enterprise or school networks add further obstacles—AP isolation, mDNS filtering, and aggressive UDP blocking.
 
-* **Discovery**: JEND first attempts local mDNS discovery (IPv4/IPv6).
+* **Discovery**: JEND first attempts local mDNS discovery (IPv4/IPv6). On networks where multicast is blocked, it falls back to cloud registry matching: two devices with the same public IP are recognized as likely co-located and given each other's local address.
 * **Hole Punching**: If local discovery fails, it uses **ICE** (Interactive Connectivity Establishment) to punch holes through NATs.
 * **Configurable Relays**: For strict networks, I implemented a **"Bring Your Own Relay"** system. You can point JEND at any standard TURN server (e.g., a free Oracle Cloud instance) to route traffic when P2P is impossible. Secure, private routing without vendor lock-in.
+* **QR Mode (Browser Transfer)**: As a last resort on networks that block everything, `--qr` mode bypasses the QUIC transport entirely and serves the file over a standard HTTP server on port 8888. The receiver opens the URL in any browser—no JEND installation required. Because it runs over plain TCP, it works on networks that block all UDP traffic.
 
 ### 4. Reliability: State-Machine Resumption
 
@@ -95,6 +96,22 @@ jend receive happy-delta-seven
 
 ## Power User Features
 
+### QR Code Mode
+
+The easiest way to share a file with someone on the same network, especially on enterprise or school Wi-Fi where peer-to-peer connections are blocked. Run `--qr` and a QR code appears in your terminal. Anyone can scan it with their phone or laptop camera—the file opens in their browser, no JEND installation needed.
+
+```bash
+jend send --qr report.pdf
+```
+
+The browser download page shows the file name, size, type, and SHA-256 hash before the download starts, so the receiver can confirm what they are getting. After the download completes, the server shuts itself down automatically.
+
+This also works for text snippets:
+
+```bash
+jend send --qr --text "https://internal-link.corp/doc"
+```
+
 ### Persistent Configuration
 
 Dont want to type flags every time? Save your preferences.
@@ -133,6 +150,7 @@ Usage: `jend send [file] [flags]`
 | Feature | Flag | Description |
 | :--- | :--- | :--- |
 | **Send Text** | `--text "msg"` | Send a text string directly without creating a file. Useful for sharing URLs or passwords. |
+| **QR Mode** | `--qr` | Start a local HTTP server and display a QR code. The receiver opens the URL in any browser. No JEND install required on their end. |
 | **Incognito** | `--incognito` | Disables history logging and clipboard copying. Use this for sensitive data you don't want tracked locally. |
 | **Compression** | `--tar` / `--zip` | Manually force a compression format. JEND usually detects this automatically for directories. |
 | **Automation** | `--headless` | Runs without the interactive UI (TUI). Outputs machine-readable logs to stdout for scripts. |
@@ -142,6 +160,9 @@ Usage: `jend send [file] [flags]`
 **Examples:**
 
 ```bash
+# Share a file with someone who doesn't have JEND installed (school/work WiFi)
+jend send --qr presentation.pptx
+
 # Send a sensitive string without logging it
 jend send --incognito --text "MySecretPassword"
 
