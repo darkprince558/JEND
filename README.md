@@ -96,6 +96,32 @@ jend receive happy-delta-seven
 
 ## Power User Features
 
+### Multi-File Sending
+
+Pass multiple files or directories directly and JEND bundles them into a single zip archive for the transfer. The temp archive is cleaned up automatically.
+
+```bash
+jend send report.pdf data.csv screenshots/
+```
+
+This also works with `--qr`:
+
+```bash
+jend send --qr file1.txt file2.txt image.png
+```
+
+### Piping from STDIN
+
+JEND detects when its input is a pipe and automatically treats the incoming bytes as a text transfer. No `--text` flag needed.
+
+```bash
+cat notes.txt | jend send
+echo "db_password=hunter2" | jend send
+git log --oneline -10 | jend send
+```
+
+This is the fastest way to share command output or filter results with someone on the same network.
+
 ### QR Code Mode
 
 The easiest way to share a file with someone on the same network, especially on enterprise or school Wi-Fi where peer-to-peer connections are blocked. Run `--qr` and a QR code appears in your terminal. Anyone can scan it with their phone or laptop camera—the file opens in their browser, no JEND installation needed.
@@ -150,6 +176,8 @@ Usage: `jend send [file] [flags]`
 | Feature | Flag | Description |
 | :--- | :--- | :--- |
 | **Send Text** | `--text "msg"` | Send a text string directly without creating a file. Useful for sharing URLs or passwords. |
+| **Multiple Files** | `file1 file2 ...` | Pass multiple files or directories as arguments. JEND bundles them into a zip automatically. |
+| **Pipe from STDIN** | `cat file \| jend send` | Pipe any data into JEND and it will be sent as a text transfer. No flags needed. |
 | **QR Mode** | `--qr` | Start a local HTTP server and display a QR code. The receiver opens the URL in any browser. No JEND install required on their end. |
 | **Incognito** | `--incognito` | Disables history logging and clipboard copying. Use this for sensitive data you don't want tracked locally. |
 | **Compression** | `--tar` / `--zip` | Manually force a compression format. JEND usually detects this automatically for directories. |
@@ -160,6 +188,12 @@ Usage: `jend send [file] [flags]`
 **Examples:**
 
 ```bash
+# Bundle multiple files into one transfer
+jend send notes.txt schema.sql diagram.png
+
+# Pipe grep output directly to a colleague
+grep -r "BUG" ./src | jend send
+
 # Share a file with someone who doesn't have JEND installed (school/work WiFi)
 jend send --qr presentation.pptx
 
