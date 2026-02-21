@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/darkprince558/jend/internal/audit"
+	"github.com/darkprince558/jend/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -31,11 +32,16 @@ Example:
 		}
 
 		if len(args) > 0 {
-			// Detail view
+			// Detail view for a specific entry
 			audit.ShowDetail(args[0])
-		} else {
-			// List view
+		} else if headless {
+			// Non-interactive table
 			audit.ShowHistory()
+		} else {
+			// Interactive TUI
+			if err := ui.RunHistoryViewer(); err != nil {
+				fmt.Printf("Error: %v\n", err)
+			}
 		}
 	},
 }
