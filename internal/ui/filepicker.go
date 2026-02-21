@@ -63,10 +63,10 @@ func (d stagedDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	wFn := lipgloss.NewStyle().Width(d.width).Align(lipgloss.Left).PaddingLeft(2).Render
 
 	if index == m.Index() {
-		// Active (>> is 2 chars + 1 space = 3 chars wide)
+		// Active (>> + space = 3 chars)
 		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(">> "+str)))
 	} else {
-		// Inactive (2 spaces + 1 char = 3 chars wide, perfectly matches 3 chars of Active!)
+		// Inactive (2 spaces + > = 3 chars, perfectly matches Active width!)
 		fmt.Fprint(w, wFn(lipgloss.NewStyle().Foreground(ColorText).Render("  >"+str)))
 	}
 }
@@ -655,8 +655,10 @@ func (m *FilePickerModel) View() string {
 	// Footer Instructions
 	footer := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true).Align(lipgloss.Left).Render("tab switch pane  ·  space toggle item  ·  enter confirm  ·  / search")
 
-	// Render the whole block without trimming the banner to safeguard logo height geometry
+	// Render the whole block.
+	// We MUST strip trailing newlines aggressively from the final join to ensure we don't accidentally push the height > m.height and cause a double-render terminal scroll.
 	fullPage := lipgloss.JoinVertical(lipgloss.Left, banner, subtitle, body, footer)
+	fullPage = strings.TrimRight(fullPage, "\n")
 
 	// Return top-left aligned, do not center
 	return fullPage
