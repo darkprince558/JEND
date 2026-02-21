@@ -29,6 +29,7 @@ type WizardResult struct {
 	TextContent string
 	IsText      bool
 	UseS3       bool
+	UseQR       bool
 	ForceZip    bool
 	ForceTar    bool
 	Incognito   bool
@@ -77,7 +78,7 @@ type SendWizardModel struct {
 	// Step 2: Options
 	optCursor     int
 	confirmCursor int
-	modeChoice    int // 0 = Direct, 1 = S3
+	modeChoice    int // 0 = Direct, 1 = S3, 2 = QR
 	forceZip      bool
 	forceTar      bool
 	incognito     bool
@@ -328,7 +329,7 @@ func (m SendWizardModel) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ── Step 2: Options ──
 
 func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	totalItems := 7 // Direct, S3, ZIP, TAR, Incognito, No Clipboard, No History
+	totalItems := 8 // Direct, S3, QR, ZIP, TAR, Incognito, No Clipboard, No History
 
 	switch msg.Type {
 	case tea.KeyUp:
@@ -352,23 +353,25 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			m.modeChoice = 0
 		case 1: // S3
 			m.modeChoice = 1
-		case 2: // ZIP toggle
+		case 2: // QR
+			m.modeChoice = 2
+		case 3: // ZIP toggle
 			m.forceZip = !m.forceZip
 			if m.forceZip {
 				m.forceTar = false
 			}
-		case 3: // TAR toggle
+		case 4: // TAR toggle
 			m.forceTar = !m.forceTar
 			if m.forceTar {
 				m.forceZip = false
 			}
-		case 4: // Incognito toggle
+		case 5: // Incognito toggle
 			m.incognito = !m.incognito
 			if m.incognito {
 				m.noClipboard = false
 				m.noHistory = false
 			}
-		case 5: // No Clipboard toggle
+		case 6: // No Clipboard toggle
 			m.noClipboard = !m.noClipboard
 			if m.noClipboard {
 				m.incognito = false
@@ -378,7 +381,7 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 				m.noClipboard = false
 				m.noHistory = false
 			}
-		case 6: // No History toggle
+		case 7: // No History toggle
 			m.noHistory = !m.noHistory
 			if m.noHistory {
 				m.incognito = false
@@ -392,6 +395,7 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	case tea.KeyTab, tea.KeyRight:
 		// Tab advances to confirm step
 		m.result.UseS3 = (m.modeChoice == 1)
+		m.result.UseQR = (m.modeChoice == 2)
 		m.result.ForceZip = m.forceZip
 		m.result.ForceTar = m.forceTar
 		m.result.Incognito = m.incognito
@@ -587,21 +591,22 @@ func (m SendWizardModel) viewStepOptions() string {
 
 	s.WriteString(m.renderRadio("Direct (P2P)", "Fastest · real-time · both online", m.optCursor == 0, m.modeChoice == 0))
 	s.WriteString(m.renderRadio("Cloud (S3)  ", "Async · pick up later · ≤200MB", m.optCursor == 1, m.modeChoice == 1))
+	s.WriteString(m.renderRadio("QR / Browser", "Share via browser · no JEND needed", m.optCursor == 2, m.modeChoice == 2))
 
 	// -- Compression --
 	s.WriteString(sectionStyle.Render("Compression"))
 	s.WriteString("\n")
 
-	s.WriteString(m.renderToggle("Compress as ZIP", "Bundle into .zip archive", m.optCursor == 2, m.forceZip))
-	s.WriteString(m.renderToggle("Compress as TAR", "Bundle into .tar.gz archive", m.optCursor == 3, m.forceTar))
+	s.WriteString(m.renderToggle("Compress as ZIP", "Bundle into .zip archive", m.optCursor == 3, m.forceZip))
+	s.WriteString(m.renderToggle("Compress as TAR", "Bundle into .tar.gz archive", m.optCursor == 4, m.forceTar))
 
 	// -- Privacy --
 	s.WriteString(sectionStyle.Render("Privacy"))
 	s.WriteString("\n")
 
-	s.WriteString(m.renderToggle("Incognito   ", "No clipboard, no history", m.optCursor == 4, m.incognito))
-	s.WriteString(m.renderToggle("No clipboard", "Don't copy code", m.optCursor == 5, m.noClipboard))
-	s.WriteString(m.renderToggle("No history  ", "Skip audit log", m.optCursor == 6, m.noHistory))
+	s.WriteString(m.renderToggle("Incognito   ", "No clipboard, no history", m.optCursor == 5, m.incognito))
+	s.WriteString(m.renderToggle("No clipboard", "Don't copy code", m.optCursor == 6, m.noClipboard))
+	s.WriteString(m.renderToggle("No history  ", "Skip audit log", m.optCursor == 7, m.noHistory))
 
 	help := WizardHelpStyle.Render("arrows navigate · enter toggle · esc back")
 	s.WriteString(help)

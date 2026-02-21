@@ -115,6 +115,7 @@ Example:
 			textContent = wizResult.TextContent
 			isText = wizResult.IsText
 			useS3 = wizResult.UseS3
+			useQR = wizResult.UseQR
 			forceZip = wizResult.ForceZip
 			forceTar = wizResult.ForceTar
 			if wizResult.Incognito {
@@ -338,7 +339,7 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 			fmt.Printf("\r  Sending... %.0f%%", pct)
 		},
 		OnComplete: func() {
-			fmt.Println("\n\n  ✅ Download complete! File sent successfully.")
+			fmt.Println("\n\n  Download complete. File sent successfully.")
 			// Give a moment for the HTTP response to flush, then shut down
 			go func() {
 				time.Sleep(2 * time.Second)

@@ -214,14 +214,22 @@ func (s *QRServer) handlePage(w http.ResponseWriter, r *http.Request) {
 	downloadURL := fmt.Sprintf("/d/%s/download", s.config.Token)
 
 	textPreview := ""
+	isURL := false
 	if s.config.IsText {
-		preview := s.config.TextContent
-		if len(preview) > 500 {
-			preview = preview[:500] + "..."
+		trimmed := strings.TrimSpace(s.config.TextContent)
+		if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+			// Treat as a clickable link
+			isURL = true
+			textPreview = trimmed
+		} else {
+			preview := s.config.TextContent
+			if len(preview) > 500 {
+				preview = preview[:500] + "..."
+			}
+			textPreview = strings.ReplaceAll(preview, "`", "&#96;")
+			textPreview = strings.ReplaceAll(textPreview, "<", "&lt;")
+			textPreview = strings.ReplaceAll(textPreview, ">", "&gt;")
 		}
-		textPreview = strings.ReplaceAll(preview, "`", "&#96;")
-		textPreview = strings.ReplaceAll(textPreview, "<", "&lt;")
-		textPreview = strings.ReplaceAll(textPreview, ">", "&gt;")
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -253,6 +261,11 @@ padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.06)}
 margin-bottom:16px;font-family:'SF Mono',Monaco,monospace;font-size:0.8rem;color:#94A1B2;
 max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
 border:1px solid rgba(0,240,255,0.1)}
+.link-preview{background:#16161A;border-radius:10px;padding:16px;text-align:center;
+margin-bottom:16px;border:1px solid rgba(0,240,255,0.15)}
+.link-preview a{color:#00F0FF;font-size:0.9rem;word-break:break-all;text-decoration:none;
+border-bottom:1px solid rgba(0,240,255,0.3);padding-bottom:2px}
+.link-preview a:hover{border-bottom-color:#00F0FF}
 .btn{display:block;width:100%;padding:16px;border:none;border-radius:12px;cursor:pointer;
 font-size:1.1rem;font-weight:700;letter-spacing:0.04em;transition:all 0.2s ease;text-decoration:none;color:#FFFFFE}
 .btn-download{background:linear-gradient(135deg,#7F5AF0,#6B3FD4);
@@ -299,8 +312,13 @@ border-radius:10px;border:1px solid rgba(44,182,125,0.2)}
     </div>`
 
 	if s.config.IsText && textPreview != "" {
-		html += `
+		if isURL {
+			html += `
+    <div class="link-preview"><a href="` + textPreview + `" target="_blank" rel="noopener">` + textPreview + `</a></div>`
+		} else {
+			html += `
     <div class="text-preview">` + textPreview + `</div>`
+		}
 	}
 
 	html += `
