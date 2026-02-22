@@ -164,6 +164,17 @@ Example:
 
 		// QR Mode: start local HTTP server instead of P2P sender
 		if useQR {
+			// Show interactive prompt if no explicit flags were set
+			if !cmd.Flags().Changed("qr-limit") && !cmd.Flags().Changed("qr-expire") && !headless {
+				opts, err := ui.RunQRPrompt()
+				if err != nil || opts.Cancelled {
+					fmt.Println("Cancelled.")
+					return
+				}
+				qrLimit = opts.MaxDownloads
+				qrExpire = opts.ExpireAfter
+				// opts.Mode will be used when cloud mode is implemented
+			}
 			startQRSender(filePath, textContent, isText, forceTar, forceZip)
 			return
 		}
