@@ -11,8 +11,47 @@ import (
 )
 
 // FindSender scans the network for a JEND sender matching the code.
-// It returns the IP:Port string if found, or an error if timed out.
+// It tries mDNS first, then falls back to a brute-force subnet scan
+// if multicast is blocked. Returns the IP:Port string if found.
 func FindSender(code string, timeout time.Duration) (string, error) {
+	// --- Phase 1: mDNS (fast, preferred) ---
+	mdnsTimeout := timeout / 2
+	if mdnsTimeout < 3*time.Second {
+		mdnsTimeout = 3 * time.Second
+	}
+	addr, err := findSenderMDNS(code, mdnsTimeout)
+	if err == nil {
+		return addr, nil
+	}
+
+	// --- Phase 2: Subnet Scan (fallback when mDNS/multicast is blocked) ---
+	fmt.Println("  mDNS discovery failed, trying subnet scan...")
+
+	localIP, ipErr := getLocalIPForScan()
+	if ipErr != nil {
+		return "", fmt.Errorf("mDNS failed and cannot determine local IP for subnet scan: %w", ipErr)
+	}
+
+	result, scanErr := ScanSubnet(localIP, ScanListenerPort, ComputeHash(code))
+	if scanErr != nil {
+		return "", fmt.Errorf("mDNS and subnet scan both failed: %w", scanErr)
+	}
+
+	return net.JoinHostPort(result.IP, fmt.Sprintf("%d", result.Port)), nil
+}
+
+// getLocalIPForScan returns the local IPv4 address for subnet scanning.
+func getLocalIPForScan() (string, error) {
+	conn, err := net.Dial("udp4", "8.8.8.8:80")
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).IP.String(), nil
+}
+
+// findSenderMDNS is the original mDNS-based sender discovery.
+func findSenderMDNS(code string, timeout time.Duration) (string, error) {
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
 		return "", err
@@ -62,9 +101,6 @@ func FindSender(code string, timeout time.Duration) (string, error) {
 
 						if ip != nil {
 							port := entry.Port
-							// Format IPv6 address correctly [::1]:port
-							// internal/transport/quic.go Dial function expects "host:port" or "[host]:port"
-							// net.JoinHostPort handles this.
 							return net.JoinHostPort(ip.String(), fmt.Sprintf("%d", port)), nil
 						}
 					}
