@@ -357,14 +357,14 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 			fmt.Printf("\r  Sending... %.0f%%", pct)
 		},
 		OnComplete: func(downloadCount int) {
-			fmt.Printf("\n\n  ✓ Download #%d complete\n", downloadCount)
+			fmt.Printf("\n\n  Download #%d complete\n", downloadCount)
 			if qrLimit > 0 {
 				remaining := qrLimit - downloadCount
 				if remaining > 0 {
-					fmt.Printf("  %d/%d downloads remaining. (Ctrl+C to stop)\n", remaining, qrLimit)
+					fmt.Printf("  %d/%d downloads used. Ctrl+C to stop.\n", downloadCount, qrLimit)
 				}
 			} else {
-				fmt.Println("  Server still running — others can scan too. (Ctrl+C to stop)")
+				fmt.Println("  Waiting for more downloads... (Ctrl+C to stop)")
 			}
 		},
 		OnLimitReached: func() {
@@ -399,16 +399,16 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 	nameStyle := lipgloss.NewStyle().Foreground(ui.ColorText).Bold(true)
 	sizeStyle := lipgloss.NewStyle().Foreground(ui.ColorSubtext)
 
-	fmt.Printf("  %s %s\n", hintStyle.Render("Scan to download:"), urlStyle.Render(qrURL))
+	fmt.Printf("  %s %s\n", hintStyle.Render("URL:"), urlStyle.Render(qrURL))
 	if ipv6URL != "" && ipv4URL != "" {
-		fmt.Printf("  %s %s\n", hintStyle.Render("IPv4 fallback:"), urlStyle.Render(ipv4URL))
+		fmt.Printf("  %s %s\n", hintStyle.Render("IPv4:"), urlStyle.Render(ipv4URL))
 	}
 	fmt.Printf("  %s %s\n", hintStyle.Render("File:"), nameStyle.Render(fileName)+" "+sizeStyle.Render("("+formatBytesLocal(fileSize)+")"))
 	if qrLimit > 0 {
 		fmt.Printf("  %s %s\n", hintStyle.Render("Downloads:"), sizeStyle.Render(fmt.Sprintf("%d allowed", qrLimit)))
 	}
 	if qrExpire > 0 {
-		fmt.Printf("  %s %s\n", hintStyle.Render("Expires in:"), sizeStyle.Render(qrExpire.String()))
+		fmt.Printf("  %s %s\n", hintStyle.Render("Expires:"), sizeStyle.Render(qrExpire.String()))
 	}
 	fmt.Println()
 	fmt.Println(hintStyle.Render("  Waiting for download... (Ctrl+C to cancel)"))
@@ -504,11 +504,11 @@ func startCloudQRSender(filePath string, textContent string, isText bool, forceT
 		TextContent: textContent,
 		OnProgress: func(sent, total int64) {
 			pct := float64(sent) / float64(total) * 100
-			fmt.Printf("\r  Sending via WebRTC... %.0f%%", pct)
+			fmt.Printf("\r  Sending... %.0f%%", pct)
 		},
 		OnComplete: func(downloadCount int) {
-			fmt.Printf("\n\n  ✓ Download #%d complete (WebRTC)\n", downloadCount)
-			fmt.Println("  Waiting for more connections... (Ctrl+C to stop)")
+			fmt.Printf("\n\n  Download #%d complete\n", downloadCount)
+			fmt.Println("  Waiting for more downloads... (Ctrl+C to stop)")
 		},
 	})
 
@@ -544,15 +544,15 @@ func startCloudQRSender(filePath string, textContent string, isText bool, forceT
 		Padding(0, 2).
 		MarginLeft(2)
 
-	fmt.Printf("  %s %s\n", hintStyle.Render("Mode:"), modeStyle.Render("☁  Cloud (WebRTC)"))
-	fmt.Printf("  %s %s\n", hintStyle.Render("Or visit:"), urlStyle.Render("d36yyit6n9gsha.cloudfront.net/qr"))
+	fmt.Printf("  %s %s\n", hintStyle.Render("Mode:"), modeStyle.Render("Cloud (WebRTC)"))
+	fmt.Printf("  %s %s\n", hintStyle.Render("URL:"), urlStyle.Render("d36yyit6n9gsha.cloudfront.net/qr"))
 	fmt.Printf("  %s %s\n", hintStyle.Render("File:"), nameStyle.Render(fileName)+" "+sizeStyle.Render("("+formatBytesLocal(fileSize)+")"))
 	fmt.Printf("  %s %s\n", hintStyle.Render("SHA-256:"), sizeStyle.Render(fileHash[:16]+"..."))
 	fmt.Println()
-	fmt.Printf("  %s\n", hintStyle.Render("Or enter this code on the website:"))
+	fmt.Printf("  %s\n", hintStyle.Render("No QR scanner? Enter this code at the URL above:"))
 	fmt.Println(codeStyle.Render(token))
 	fmt.Println()
-	fmt.Println(hintStyle.Render("  Waiting for WebRTC connection... (Ctrl+C to cancel)"))
+	fmt.Println(hintStyle.Render("  Waiting for download... (Ctrl+C to cancel)"))
 	fmt.Println()
 
 	// Start the WebRTC sender (blocks until ctx is cancelled)

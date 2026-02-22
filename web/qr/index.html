@@ -271,9 +271,20 @@
             padding: 30px 10px
         }
 
-        .connecting-card .spinner {
-            font-size: 1.5rem;
-            margin-bottom: 12px
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(127, 90, 240, 0.2);
+            border-top-color: #7F5AF0;
+            border-radius: 50%;
+            margin: 0 auto 16px;
+            animation: spin 0.8s linear infinite
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg)
+            }
         }
 
         .connecting-card .status {
@@ -389,9 +400,9 @@
         <div class="card" id="connectingCard" style="display:none">
             <div class="badge">CLOUD · WEBRTC</div>
             <div class="connecting-card">
-                <div class="spinner pulse">🔗</div>
+                <div class="spinner"></div>
                 <div class="status" id="connectStatus">Connecting...</div>
-                <div class="sub" id="connectSub">Authenticating with signaling server</div>
+                <div class="sub" id="connectSub">Please wait</div>
             </div>
         </div>
 
@@ -492,14 +503,14 @@
                 ];
 
                 document.getElementById('connectingCard').style.display = 'block';
-                setStatus('Authenticating...', 'Getting temporary credentials');
+                setStatus('Connecting...', 'Please wait');
 
                 // Step 1: Cognito credentials
                 AWS.config.region = REGION;
                 AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: IDENTITY_POOL_ID });
                 AWS.config.credentials.get(function (err) {
-                    if (err) { showError('Auth failed: ' + err.message); return; }
-                    setStatus('Fetching TURN credentials...', 'Setting up relay for NAT traversal');
+                    if (err) { showError('Authentication failed. Please try again.'); return; }
+                    setStatus('Connecting...', 'Setting up relay servers');
                     fetchTURN();
                 });
 
@@ -516,7 +527,7 @@
                 }
 
                 function connectMQTT() {
-                    setStatus('Connecting...', 'Connecting to signaling server');
+                    setStatus('Connecting...', 'Establishing signaling connection');
                     var url = getSignedUrl(IOT_ENDPOINT, REGION, AWS.config.credentials);
                     var clientId = 'jend-browser-' + Math.random().toString(36).substr(2, 8);
                     mqttClient = new Paho.Client(url, clientId);
@@ -528,10 +539,10 @@
                         useSSL: true, timeout: 10, mqttVersion: 4,
                         onSuccess: function () {
                             mqttClient.subscribe(TOPIC, { qos: 1 });
-                            setStatus('Waiting for sender...', 'Sending WebRTC offer · Code: ' + token);
+                            setStatus('Connecting...', 'Establishing connection');
                             startWebRTC();
                         },
-                        onFailure: function (e) { showError('Signaling failed: ' + (e.errorMessage || 'Check your connection')); }
+                        onFailure: function (e) { showError('Could not connect to signaling server. Check your internet connection.'); }
                     });
                 }
 
@@ -545,7 +556,7 @@
                     pc.ondatachannel = function (e) {
                         dc = e.channel; dc.binaryType = 'arraybuffer';
                         dc.onmessage = onDCMsg;
-                        dc.onopen = function () { setStatus('Connected!', 'Waiting for file info...'); };
+                        dc.onopen = function () { setStatus('Connected', 'Waiting for file info...'); };
                     };
 
                     pc.onicecandidate = function (e) {
@@ -558,7 +569,7 @@
                     pc.createOffer()
                         .then(function (o) { return pc.setLocalDescription(o); })
                         .then(function () { publishMQTT({ type: 'offer', sdp: pc.localDescription.sdp, sessionId: SESSION_ID }); })
-                        .catch(function (e) { showError('WebRTC offer failed: ' + e); });
+                        .catch(function (e) { showError('Could not establish a WebRTC connection.'); });
                 }
 
                 function handleSignal(msg) {
