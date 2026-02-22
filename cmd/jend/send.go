@@ -39,6 +39,8 @@ var (
 	flagPort        string
 	useS3           bool
 	useQR           bool
+	qrLimit         int
+	qrExpire        time.Duration
 )
 
 var sendCmd = &cobra.Command{
@@ -187,6 +189,8 @@ func init() {
 	sendCmd.Flags().StringVar(&flagPort, "port", "9000", "Port to listen on (default 9000)")
 	sendCmd.Flags().BoolVar(&useS3, "s3", false, "Use S3 for file transfer (limit 200MB)")
 	sendCmd.Flags().BoolVar(&useQR, "qr", false, "Generate a QR code for browser-based download (no JEND needed on receiver)")
+	sendCmd.Flags().IntVar(&qrLimit, "qr-limit", 0, "Max number of QR downloads allowed (0 = unlimited)")
+	sendCmd.Flags().DurationVar(&qrExpire, "qr-expire", 0, "Auto-expire the QR server after duration (e.g. 15m, 1h)")
 }
 
 // startSender initializes the sender process.
@@ -319,20 +323,39 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 
 	// Create server
 	srv := core.NewQRServer(core.QRServerConfig{
-		FilePath:    filePath,
-		FileName:    fileName,
-		FileSize:    fileSize,
-		FileHash:    fileHash,
-		IsText:      isText,
-		TextContent: textContent,
-		Port:        8888,
+		FilePath:     filePath,
+		FileName:     fileName,
+		FileSize:     fileSize,
+		FileHash:     fileHash,
+		IsText:       isText,
+		TextContent:  textContent,
+		Port:         8888,
+		MaxDownloads: qrLimit,
+		ExpireAfter:  qrExpire,
 		OnProgress: func(sent, total int64) {
 			pct := float64(sent) / float64(total) * 100
 			fmt.Printf("\r  Sending... %.0f%%", pct)
 		},
 		OnComplete: func(downloadCount int) {
 			fmt.Printf("\n\n  ✓ Download #%d complete\n", downloadCount)
-			fmt.Println("  Server still running — others can scan too. (Ctrl+C to stop)")
+			if qrLimit > 0 {
+				remaining := qrLimit - downloadCount
+				if remaining > 0 {
+					fmt.Printf("  %d/%d downloads remaining. (Ctrl+C to stop)\n", remaining, qrLimit)
+				}
+			} else {
+				fmt.Println("  Server still running — others can scan too. (Ctrl+C to stop)")
+			}
+		},
+		OnLimitReached: func() {
+			fmt.Printf("\n  Download limit (%d) reached. Shutting down...\n", qrLimit)
+			go func() {
+				time.Sleep(2 * time.Second)
+				cancel()
+			}()
+		},
+		OnExpire: func() {
+			fmt.Printf("\n  QR code expired after %s. Shutting down...\n", qrExpire)
 		},
 	})
 
@@ -361,6 +384,12 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 		fmt.Printf("  %s %s\n", hintStyle.Render("IPv4 fallback:"), urlStyle.Render(ipv4URL))
 	}
 	fmt.Printf("  %s %s\n", hintStyle.Render("File:"), nameStyle.Render(fileName)+" "+sizeStyle.Render("("+formatBytesLocal(fileSize)+")"))
+	if qrLimit > 0 {
+		fmt.Printf("  %s %s\n", hintStyle.Render("Downloads:"), sizeStyle.Render(fmt.Sprintf("%d allowed", qrLimit)))
+	}
+	if qrExpire > 0 {
+		fmt.Printf("  %s %s\n", hintStyle.Render("Expires in:"), sizeStyle.Render(qrExpire.String()))
+	}
 	fmt.Println()
 	fmt.Println(hintStyle.Render("  Waiting for download... (Ctrl+C to cancel)"))
 	fmt.Println()

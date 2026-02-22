@@ -20,16 +20,20 @@ import (
 
 // QRServerConfig holds the configuration for the QR download server.
 type QRServerConfig struct {
-	FilePath    string
-	FileName    string
-	FileSize    int64
-	FileHash    string
-	IsText      bool
-	TextContent string
-	Token       string
-	Port        int
-	OnProgress  func(sent, total int64)
-	OnComplete  func(downloadCount int)
+	FilePath       string
+	FileName       string
+	FileSize       int64
+	FileHash       string
+	IsText         bool
+	TextContent    string
+	Token          string
+	Port           int
+	MaxDownloads   int           // 0 = unlimited
+	ExpireAfter    time.Duration // 0 = never
+	OnProgress     func(sent, total int64)
+	OnComplete     func(downloadCount int)
+	OnLimitReached func() // called when MaxDownloads is reached
+	OnExpire       func() // called when ExpireAfter fires
 }
 
 // QRServer is a lightweight HTTP server that serves a single file for download.
@@ -38,6 +42,7 @@ type QRServer struct {
 	server        *http.Server
 	mu            sync.Mutex
 	downloadCount int
+	limitReached  bool
 }
 
 // NewQRServer creates a new QR download server.
@@ -73,6 +78,23 @@ func (s *QRServer) Start(ctx context.Context) error {
 		defer cancel()
 		_ = s.server.Shutdown(shutdownCtx)
 	}()
+
+	// Auto-expire timer
+	if s.config.ExpireAfter > 0 {
+		go func() {
+			select {
+			case <-time.After(s.config.ExpireAfter):
+				if s.config.OnExpire != nil {
+					s.config.OnExpire()
+				}
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				_ = s.server.Shutdown(shutdownCtx)
+			case <-ctx.Done():
+				// Server already shutting down
+			}
+		}()
+	}
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -126,6 +148,17 @@ func (s *QRServer) handleInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *QRServer) handleDownload(w http.ResponseWriter, r *http.Request) {
+	// Enforce download limit
+	if s.config.MaxDownloads > 0 {
+		s.mu.Lock()
+		if s.downloadCount >= s.config.MaxDownloads {
+			s.mu.Unlock()
+			http.Error(w, "Download limit reached", http.StatusGone)
+			return
+		}
+		s.mu.Unlock()
+	}
+
 	if s.config.IsText {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, "jend-text.txt"))
@@ -138,6 +171,9 @@ func (s *QRServer) handleDownload(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		if s.config.OnComplete != nil {
 			go s.config.OnComplete(count)
+		}
+		if s.config.MaxDownloads > 0 && count >= s.config.MaxDownloads && s.config.OnLimitReached != nil {
+			go s.config.OnLimitReached()
 		}
 		return
 	}
@@ -188,6 +224,9 @@ func (s *QRServer) handleDownload(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	if s.config.OnComplete != nil {
 		go s.config.OnComplete(count)
+	}
+	if s.config.MaxDownloads > 0 && count >= s.config.MaxDownloads && s.config.OnLimitReached != nil {
+		go s.config.OnLimitReached()
 	}
 }
 func (s *QRServer) handlePage(w http.ResponseWriter, r *http.Request) {
