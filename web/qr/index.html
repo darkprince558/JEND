@@ -167,13 +167,6 @@
             transform: translateY(0)
         }
 
-        .btn-download:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none
-        }
-
         .progress-wrap {
             display: none;
             margin-top: 16px
@@ -316,7 +309,6 @@
  ╚════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝ </pre>
         <div class="subtitle">Someone wants to send you a file</div>
 
-        <!-- Connecting state -->
         <div class="card" id="connectingCard">
             <div class="badge">CLOUD · WEBRTC</div>
             <div class="connecting-card">
@@ -326,7 +318,6 @@
             </div>
         </div>
 
-        <!-- File info + Download state -->
         <div class="card" id="fileCard" style="display:none">
             <div class="badge">CLOUD · WEBRTC</div>
             <div class="file-name" id="fileName"></div>
@@ -365,15 +356,17 @@
     </div>
     <script>
         (function () {
-            // ── Config ──
             var REGION = 'us-east-1';
             var IDENTITY_POOL_ID = 'us-east-1:6b98c4f2-9fea-4591-8b0f-f34be0a4da23';
             var IOT_ENDPOINT = 'a10ofg7qwmr003-ats.iot.us-east-1.amazonaws.com';
+            var TURN_AUTH_API = 'https://ei6hnj0udh.execute-api.us-east-1.amazonaws.com/turn-auth';
 
             var token = location.hash.slice(1);
             if (!token) { showError('No transfer token. Scan a valid QR code.'); return; }
 
             var TOPIC = 'jend/signal/qr-' + token;
+            // Each browser tab/session gets its own unique ID to prevent SDP collisions
+            var SESSION_ID = 'sess-' + Math.random().toString(36).substr(2, 12);
 
             var pc = null;
             var dc = null;
@@ -383,20 +376,45 @@
             var totalReceived = 0;
             var fileMeta = null;
             var downloadStarted = false;
+            var iceServers = [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ];
 
-            // ── Step 1: Get Cognito credentials ──
             setConnectStatus('Authenticating...', 'Getting temporary credentials');
 
+            // Step 1: Cognito credentials
             AWS.config.region = REGION;
             AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: IDENTITY_POOL_ID });
-
             AWS.config.credentials.get(function (err) {
                 if (err) { showError('Auth failed: ' + err.message); return; }
-                setConnectStatus('Connecting...', 'Connecting to signaling server');
-                connectMQTT();
+                setConnectStatus('Fetching TURN credentials...', 'Setting up relay servers');
+                fetchTURNCredentials();
             });
 
-            // ── Step 2: Connect to MQTT via SigV4 WebSocket ──
+            // Step 2: Fetch TURN credentials for NAT traversal on restrictive networks
+            function fetchTURNCredentials() {
+                fetch(TURN_AUTH_API)
+                    .then(function (r) { return r.json(); })
+                    .then(function (creds) {
+                        if (creds.uris && creds.username && creds.password) {
+                            iceServers.push({
+                                urls: creds.uris,
+                                username: creds.username,
+                                credential: creds.password
+                            });
+                        }
+                        setConnectStatus('Connecting...', 'Connecting to signaling server');
+                        connectMQTT();
+                    })
+                    .catch(function () {
+                        // If TURN fetch fails, proceed with STUN only
+                        setConnectStatus('Connecting...', 'Connecting to signaling server');
+                        connectMQTT();
+                    });
+            }
+
+            // Step 3: MQTT
             function connectMQTT() {
                 var creds = AWS.config.credentials;
                 var url = getSignedUrl(IOT_ENDPOINT, REGION, creds);
@@ -413,7 +431,7 @@
                     useSSL: true, timeout: 10, mqttVersion: 4,
                     onSuccess: function () {
                         mqttClient.subscribe(TOPIC, { qos: 1 });
-                        setConnectStatus('Connected!', 'Establishing WebRTC peer connection');
+                        setConnectStatus('Signaling connected!', 'Sending WebRTC offer to sender');
                         startWebRTC();
                     },
                     onFailure: function (err) {
@@ -422,61 +440,62 @@
                 });
             }
 
-            // ── Step 3: WebRTC ──
+            // Step 4: WebRTC
             function startWebRTC() {
-                setConnectStatus('Waiting for sender...', 'Sending WebRTC offer');
-
-                pc = new RTCPeerConnection({
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' }
-                    ]
-                });
+                pc = new RTCPeerConnection({ iceServers: iceServers });
 
                 dc = pc.createDataChannel('jend-file', { ordered: true });
                 dc.binaryType = 'arraybuffer';
-
-                // Also handle remote data channels (CLI creates its own)
-                pc.ondatachannel = function (e) {
-                    var remoteDC = e.channel;
-                    remoteDC.binaryType = 'arraybuffer';
-                    remoteDC.onmessage = handleDCMessage;
-                    remoteDC.onopen = function () {
-                        setConnectStatus('Connected to sender!', 'Waiting for file info...');
-                    };
-                    // Use the remote DC for sending "ready" too
-                    dc = remoteDC;
-                };
-
                 dc.onmessage = handleDCMessage;
                 dc.onopen = function () {
                     setConnectStatus('Connected to sender!', 'Waiting for file info...');
                 };
 
+                // Also handle remote-created data channels
+                pc.ondatachannel = function (e) {
+                    var rdc = e.channel;
+                    rdc.binaryType = 'arraybuffer';
+                    rdc.onmessage = handleDCMessage;
+                    rdc.onopen = function () {
+                        setConnectStatus('Connected to sender!', 'Waiting for file info...');
+                        dc = rdc;
+                    };
+                };
+
+                // Include session ID in ICE candidates so CLI routes them correctly
                 pc.onicecandidate = function (e) {
                     if (e.candidate) {
                         publishMQTT({
-                            type: 'ice', candidate: e.candidate.candidate,
-                            sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex
+                            type: 'ice',
+                            candidate: e.candidate.candidate,
+                            sdpMid: e.candidate.sdpMid,
+                            sdpMLineIndex: e.candidate.sdpMLineIndex,
+                            sessionId: SESSION_ID
                         });
                     }
                 };
 
+                // Create offer with session ID so CLI can track this specific browser
                 pc.createOffer().then(function (offer) {
                     return pc.setLocalDescription(offer);
                 }).then(function () {
-                    publishMQTT({ type: 'offer', sdp: pc.localDescription.sdp });
+                    publishMQTT({ type: 'offer', sdp: pc.localDescription.sdp, sessionId: SESSION_ID });
                 }).catch(function (e) { showError('Offer failed: ' + e); });
             }
 
             function handleSignalingMessage(msg) {
+                // Only process messages meant for this session or untagged (legacy)
+                if (msg.sessionId && msg.sessionId !== SESSION_ID) return;
+
                 if (msg.type === 'answer' && msg.sdp) {
-                    pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp }).then(function () {
-                        pendingCandidates.forEach(function (c) {
-                            pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () { });
-                        });
-                        pendingCandidates = [];
-                    }).catch(function (e) { showError('SDP error: ' + e); });
+                    pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp })
+                        .then(function () {
+                            pendingCandidates.forEach(function (c) {
+                                pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () { });
+                            });
+                            pendingCandidates = [];
+                        })
+                        .catch(function (e) { showError('SDP error: ' + e.message); });
                 } else if (msg.type === 'ice-server' && msg.candidate) {
                     var c = {
                         candidate: msg.candidate, sdpMid: msg.sdpMid || null,
@@ -490,35 +509,21 @@
                 }
             }
 
-            // ── DataChannel message handler ──
             function handleDCMessage(e) {
                 if (typeof e.data === 'string') {
-                    if (e.data === 'EOF') {
-                        triggerSave();
-                        return;
-                    }
-                    if (e.data.startsWith('ERROR:')) {
-                        showError(e.data.slice(6));
-                        return;
-                    }
-                    // Try to parse as metadata
+                    if (e.data === 'EOF') { triggerSave(); return; }
+                    if (e.data.startsWith('ERROR:')) { showError(e.data.slice(6)); return; }
                     try {
                         var msg = JSON.parse(e.data);
-                        if (msg.type === 'meta') {
-                            fileMeta = msg;
-                            showFileInfo(msg);
-                            return;
-                        }
+                        if (msg.type === 'meta') { fileMeta = msg; showFileInfo(msg); return; }
                     } catch (ex) { }
                     return;
                 }
-
-                // Binary data (file chunks) — only process after download started
                 if (!downloadStarted) return;
                 chunks.push(e.data);
                 totalReceived += e.data.byteLength;
                 if (fileMeta && fileMeta.size > 0) {
-                    var pct = Math.min(100, (totalReceived / fileMeta.size * 100));
+                    var pct = Math.min(100, totalReceived / fileMeta.size * 100);
                     document.getElementById('progressFill').style.width = pct.toFixed(0) + '%';
                     document.getElementById('progressText').textContent = pct.toFixed(0) + '% downloading...';
                 } else {
@@ -526,80 +531,58 @@
                 }
             }
 
-            // ── Show file info card (matching local QR design) ──
             function showFileInfo(meta) {
                 document.getElementById('connectingCard').style.display = 'none';
                 document.getElementById('fileCard').style.display = 'block';
-
                 document.getElementById('fileName').textContent = meta.name || 'File';
                 document.getElementById('fileSize').textContent = formatBytes(meta.size || 0);
                 document.getElementById('fileType').textContent = getFileType(meta.name, meta.isText);
-
-                var hashStr = meta.hash || '';
-                if (hashStr.length > 16) hashStr = hashStr.substr(0, 16) + '...';
-                document.getElementById('fileHash').textContent = hashStr;
-
-                // Text preview
+                var h = meta.hash || '';
+                document.getElementById('fileHash').textContent = h.length > 16 ? h.substr(0, 16) + '...' : h;
                 if (meta.isText && meta.textPreview) {
                     var wrap = document.getElementById('textPreviewWrap');
-                    var trimmed = meta.textPreview.trim();
-                    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-                        wrap.innerHTML = '<div class="link-preview"><a href="' + trimmed + '" target="_blank" rel="noopener">' + trimmed + '</a></div>';
+                    var t = meta.textPreview.trim();
+                    if (t.startsWith('http://') || t.startsWith('https://')) {
+                        wrap.innerHTML = '<div class="link-preview"><a href="' + t + '" target="_blank" rel="noopener">' + t + '</a></div>';
                     } else {
                         wrap.innerHTML = '<div class="text-preview">' + meta.textPreview + '</div>';
                     }
                 }
             }
 
-            // ── Download button click ──
             window.startDownload = function () {
                 downloadStarted = true;
-                var btn = document.getElementById('downloadBtn');
-                var prog = document.getElementById('progressWrap');
-                btn.style.display = 'none';
-                prog.style.display = 'block';
-
-                // Send "ready" to the CLI via DataChannel
-                if (dc && dc.readyState === 'open') {
-                    dc.send('ready');
-                }
+                document.getElementById('downloadBtn').style.display = 'none';
+                document.getElementById('progressWrap').style.display = 'block';
+                if (dc && dc.readyState === 'open') dc.send('ready');
             };
 
-            // ── Trigger file save ──
             function triggerSave() {
                 var blob = new Blob(chunks);
                 var a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
                 a.download = (fileMeta && fileMeta.name) ? fileMeta.name : 'download';
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-
+                document.body.appendChild(a); a.click(); a.remove();
                 document.getElementById('progressWrap').style.display = 'none';
                 document.getElementById('doneMsg').style.display = 'block';
-                document.getElementById('progressFill').style.width = '100%';
             }
 
             function showError(msg) {
                 document.getElementById('connectingCard').style.display = 'none';
-                var fc = document.getElementById('fileCard');
-                fc.style.display = 'block';
+                document.getElementById('fileCard').style.display = 'block';
+                document.getElementById('downloadBtn').style.display = 'none';
                 document.getElementById('errorCard').style.display = 'block';
                 document.getElementById('errorMsg').textContent = msg;
-                var btn = document.getElementById('downloadBtn');
-                if (btn) btn.style.display = 'none';
             }
 
-            // ── Helpers ──
-            function setConnectStatus(status, sub) {
-                document.getElementById('connectStatus').textContent = status;
+            function setConnectStatus(s, sub) {
+                document.getElementById('connectStatus').textContent = s;
                 document.getElementById('connectSub').textContent = sub;
             }
 
             function publishMQTT(obj) {
                 var msg = new Paho.Message(JSON.stringify(obj));
-                msg.destinationName = TOPIC;
-                msg.qos = 1;
+                msg.destinationName = TOPIC; msg.qos = 1;
                 mqttClient.send(msg);
             }
 
@@ -607,16 +590,15 @@
                 if (isText) return 'Text Snippet';
                 if (!name) return 'File';
                 var ext = name.split('.').pop().toLowerCase();
-                var types = {
-                    'zip': 'ZIP Archive', 'tar': 'TAR Archive', 'gz': 'GZ Archive', 'rar': 'RAR Archive', '7z': '7Z Archive',
-                    'jpg': 'Image', 'jpeg': 'Image', 'png': 'Image', 'gif': 'Image', 'webp': 'Image', 'svg': 'Image',
-                    'mp4': 'Video', 'mov': 'Video', 'avi': 'Video', 'mkv': 'Video',
-                    'mp3': 'Audio', 'wav': 'Audio', 'flac': 'Audio', 'aac': 'Audio',
-                    'pdf': 'PDF Document', 'doc': 'Word Document', 'docx': 'Word Document',
-                    'ppt': 'Presentation', 'pptx': 'Presentation',
-                    'xls': 'Spreadsheet', 'xlsx': 'Spreadsheet', 'csv': 'Spreadsheet'
-                };
-                return types[ext] || (ext + ' file');
+                return {
+                    zip: 'ZIP Archive', tar: 'TAR Archive', gz: 'GZ Archive', rar: 'RAR Archive', '7z': '7Z Archive',
+                    jpg: 'Image', jpeg: 'Image', png: 'Image', gif: 'Image', webp: 'Image', svg: 'Image',
+                    mp4: 'Video', mov: 'Video', avi: 'Video', mkv: 'Video',
+                    mp3: 'Audio', wav: 'Audio', flac: 'Audio', aac: 'Audio',
+                    pdf: 'PDF Document', doc: 'Word Document', docx: 'Word Document',
+                    ppt: 'Presentation', pptx: 'Presentation',
+                    xls: 'Spreadsheet', xlsx: 'Spreadsheet', csv: 'Spreadsheet'
+                }[ext] || (ext + ' file');
             }
 
             function formatBytes(b) {
@@ -626,34 +608,26 @@
                 return (b / 1073741824).toFixed(2) + ' GB';
             }
 
-            // ── AWS SigV4 Signed WebSocket URL ──
+            // SigV4 signed WebSocket URL
             function getSignedUrl(host, region, creds) {
-                var datetime = (new Date()).toISOString().replace(/[:\-]|\.\d{3}/g, '');
-                var date = datetime.substr(0, 8);
-                var service = 'iotdevicegateway';
-                var algorithm = 'AWS4-HMAC-SHA256';
-                var credScope = date + '/' + region + '/' + service + '/aws4_request';
-                var qs = 'X-Amz-Algorithm=' + algorithm;
-                qs += '&X-Amz-Credential=' + encodeURIComponent(creds.accessKeyId + '/' + credScope);
-                qs += '&X-Amz-Date=' + datetime;
-                qs += '&X-Amz-SignedHeaders=host';
-                var canonicalHeaders = 'host:' + host + '\n';
-                var canonicalRequest = 'GET\n/mqtt\n' + qs + '\n' + canonicalHeaders + '\nhost\n' + sha256('');
-                var stringToSign = algorithm + '\n' + datetime + '\n' + credScope + '\n' + sha256(canonicalRequest);
-                var signingKey = getSignatureKey(creds.secretAccessKey, date, region, service);
-                var signature = hmacHex(signingKey, stringToSign);
-                qs += '&X-Amz-Signature=' + signature;
+                var dt = (new Date()).toISOString().replace(/[:\-]|\.\d{3}/g, '');
+                var date = dt.substr(0, 8);
+                var svc = 'iotdevicegateway', alg = 'AWS4-HMAC-SHA256';
+                var scope = date + '/' + region + '/' + svc + '/aws4_request';
+                var qs = 'X-Amz-Algorithm=' + alg;
+                qs += '&X-Amz-Credential=' + encodeURIComponent(creds.accessKeyId + '/' + scope);
+                qs += '&X-Amz-Date=' + dt + '&X-Amz-SignedHeaders=host';
+                var cr = 'GET\n/mqtt\n' + qs + '\nhost:' + host + '\n\nhost\n' + sha256('');
+                var sig = hmacHex(getSignatureKey(creds.secretAccessKey, date, region, svc), alg + '\n' + dt + '\n' + scope + '\n' + sha256(cr));
+                qs += '&X-Amz-Signature=' + sig;
                 if (creds.sessionToken) qs += '&X-Amz-Security-Token=' + encodeURIComponent(creds.sessionToken);
                 return 'wss://' + host + '/mqtt?' + qs;
             }
             function sha256(m) { return AWS.util.crypto.sha256(m, 'hex'); }
             function hmac(k, m) { return AWS.util.crypto.hmac(k, m, 'buffer'); }
             function hmacHex(k, m) { return AWS.util.crypto.hmac(k, m, 'hex'); }
-            function getSignatureKey(key, d, r, s) {
-                return hmac(hmac(hmac(hmac('AWS4' + key, d), r), s), 'aws4_request');
-            }
+            function getSignatureKey(key, d, r, s) { return hmac(hmac(hmac(hmac('AWS4' + key, d), r), s), 'aws4_request'); }
 
-            // Timeout
             setTimeout(function () {
                 if (!fileMeta && document.getElementById('connectingCard').style.display !== 'none') {
                     showError('Connection timed out. The sender may no longer be available.');

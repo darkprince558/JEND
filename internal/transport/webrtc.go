@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/darkprince558/jend/internal/signaling"
@@ -19,7 +20,6 @@ import (
 type WebRTCSender struct {
 	signaler   *signaling.IoTClient
 	token      string
-	pc         *webrtc.PeerConnection
 	filePath   string
 	fileName   string
 	fileSize   int64
@@ -29,6 +29,11 @@ type WebRTCSender struct {
 	onProgress func(sent, total int64)
 	onComplete func(downloadCount int)
 	downloads  int
+
+	mu sync.Mutex
+	// pcs maps sessionID -> *webrtc.PeerConnection so multiple browsers
+	// can connect simultaneously without interfering with each other.
+	pcs map[string]*webrtc.PeerConnection
 }
 
 // WebRTCSenderConfig configures a new WebRTC file sender.
@@ -57,21 +62,24 @@ func NewWebRTCSender(signaler *signaling.IoTClient, cfg WebRTCSenderConfig) *Web
 		textData:   cfg.TextContent,
 		onProgress: cfg.OnProgress,
 		onComplete: cfg.OnComplete,
+		pcs:        make(map[string]*webrtc.PeerConnection),
 	}
 }
 
 // sdpMessage is the JSON structure for SDP exchange over MQTT.
 type sdpMessage struct {
-	Type string `json:"type"` // "offer", "answer"
-	SDP  string `json:"sdp"`
+	Type      string `json:"type"` // "offer", "answer"
+	SDP       string `json:"sdp"`
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 // iceMessage is the JSON structure for ICE candidate exchange over MQTT.
 type iceMessage struct {
-	Type      string `json:"type"` // "ice"
+	Type      string `json:"type"` // "ice", "ice-server"
 	Candidate string `json:"candidate"`
 	SDPMid    string `json:"sdpMid"`
 	SDPMIndex uint16 `json:"sdpMLineIndex"`
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 // fileMetaMessage is sent to the browser first so it can display file info.
@@ -89,13 +97,11 @@ type fileMetaMessage struct {
 func (s *WebRTCSender) Run(ctx context.Context) error {
 	topic := fmt.Sprintf("jend/signal/qr-%s", s.token)
 
-	// Subscribe to signaling topic for browser SDP offers
 	err := s.signaler.Subscribe(topic, func(client mqtt.Client, msg mqtt.Message) {
 		var raw map[string]interface{}
 		if err := json.Unmarshal(msg.Payload(), &raw); err != nil {
 			return
 		}
-
 		msgType, _ := raw["type"].(string)
 
 		switch msgType {
@@ -105,16 +111,19 @@ func (s *WebRTCSender) Run(ctx context.Context) error {
 				return
 			}
 			go s.handleOffer(ctx, topic, offer)
+
 		case "ice":
 			var ice iceMessage
 			if err := json.Unmarshal(msg.Payload(), &ice); err != nil {
 				return
 			}
-			if s.pc != nil {
-				candidate := webrtc.ICECandidateInit{
+			s.mu.Lock()
+			pc, ok := s.pcs[ice.SessionID]
+			s.mu.Unlock()
+			if ok && pc != nil {
+				_ = pc.AddICECandidate(webrtc.ICECandidateInit{
 					Candidate: ice.Candidate,
-				}
-				_ = s.pc.AddICECandidate(candidate)
+				})
 			}
 		}
 	})
@@ -122,16 +131,24 @@ func (s *WebRTCSender) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to subscribe to signaling topic: %w", err)
 	}
 
-	// Wait for context cancellation
 	<-ctx.Done()
-	if s.pc != nil {
-		_ = s.pc.Close()
+
+	// Close all active PeerConnections
+	s.mu.Lock()
+	for _, pc := range s.pcs {
+		_ = pc.Close()
 	}
+	s.mu.Unlock()
 	return nil
 }
 
 func (s *WebRTCSender) handleOffer(ctx context.Context, topic string, offer sdpMessage) {
-	// Create PeerConnection with STUN/TURN
+	sessionID := offer.SessionID
+	if sessionID == "" {
+		// Fallback: generate a pseudo-ID from SDP hash (older browsers)
+		sessionID = fmt.Sprintf("sess-%d", time.Now().UnixNano())
+	}
+
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{"stun:stun.l.google.com:19302"}},
@@ -144,9 +161,25 @@ func (s *WebRTCSender) handleOffer(ctx context.Context, topic string, offer sdpM
 		fmt.Printf("WebRTC: failed to create PeerConnection: %v\n", err)
 		return
 	}
-	s.pc = pc
 
-	// Send ICE candidates to the browser
+	// Register this PeerConnection under its session ID
+	s.mu.Lock()
+	s.pcs[sessionID] = pc
+	s.mu.Unlock()
+
+	// Clean up when the peer disconnects
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if state == webrtc.PeerConnectionStateFailed ||
+			state == webrtc.PeerConnectionStateClosed ||
+			state == webrtc.PeerConnectionStateDisconnected {
+			s.mu.Lock()
+			delete(s.pcs, sessionID)
+			s.mu.Unlock()
+			_ = pc.Close()
+		}
+	})
+
+	// Send each ICE candidate back to THIS specific browser via session ID
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return
@@ -155,6 +188,7 @@ func (s *WebRTCSender) handleOffer(ctx context.Context, topic string, offer sdpM
 		msg := iceMessage{
 			Type:      "ice-server",
 			Candidate: candidateJSON.Candidate,
+			SessionID: sessionID,
 		}
 		if candidateJSON.SDPMid != nil {
 			msg.SDPMid = *candidateJSON.SDPMid
@@ -166,26 +200,27 @@ func (s *WebRTCSender) handleOffer(ctx context.Context, topic string, offer sdpM
 		_ = s.signaler.Publish(topic, payload)
 	})
 
-	// Handle DataChannel opened by the browser
+	// Handle DataChannel created by the browser
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 		dc.OnOpen(func() {
-			// Send metadata first, then wait for "ready" before streaming
 			go s.sendMetaAndWait(dc)
 		})
 	})
 
-	// Set the remote SDP offer
-	err = pc.SetRemoteDescription(webrtc.SessionDescription{
+	// Set remote description (the browser's offer)
+	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  offer.SDP,
-	})
-	if err != nil {
+	}); err != nil {
 		fmt.Printf("WebRTC: failed to set remote description: %v\n", err)
+		s.mu.Lock()
+		delete(s.pcs, sessionID)
+		s.mu.Unlock()
 		_ = pc.Close()
 		return
 	}
 
-	// Create and send the answer
+	// Create the answer
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
 		fmt.Printf("WebRTC: failed to create answer: %v\n", err)
@@ -198,19 +233,18 @@ func (s *WebRTCSender) handleOffer(ctx context.Context, topic string, offer sdpM
 		return
 	}
 
-	// Send the answer back to the browser
+	// Send the answer back (include session ID so the right browser uses it)
 	answerMsg := sdpMessage{
-		Type: "answer",
-		SDP:  answer.SDP,
+		Type:      "answer",
+		SDP:       answer.SDP,
+		SessionID: sessionID,
 	}
 	payload, _ := json.Marshal(answerMsg)
 	_ = s.signaler.Publish(topic, payload)
 }
 
-// sendMetaAndWait sends file metadata over the DataChannel, then waits for
-// the browser to send "ready" before streaming the actual file data.
+// sendMetaAndWait sends file metadata then waits for "ready" before streaming.
 func (s *WebRTCSender) sendMetaAndWait(dc *webrtc.DataChannel) {
-	// Build text preview for text content
 	textPreview := ""
 	if s.isText {
 		preview := s.textData
@@ -222,7 +256,6 @@ func (s *WebRTCSender) sendMetaAndWait(dc *webrtc.DataChannel) {
 		textPreview = preview
 	}
 
-	// Send metadata
 	meta := fileMetaMessage{
 		Type:        "meta",
 		Name:        s.fileName,
@@ -234,7 +267,7 @@ func (s *WebRTCSender) sendMetaAndWait(dc *webrtc.DataChannel) {
 	metaJSON, _ := json.Marshal(meta)
 	_ = dc.SendText(string(metaJSON))
 
-	// Wait for "ready" signal from the browser (user clicked Download)
+	// Wait for "ready" from the browser
 	ready := make(chan struct{}, 1)
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		if msg.IsString && string(msg.Data) == "ready" {
@@ -247,17 +280,14 @@ func (s *WebRTCSender) sendMetaAndWait(dc *webrtc.DataChannel) {
 
 	select {
 	case <-ready:
-		// Browser is ready, start streaming
 		s.streamFile(dc)
 	case <-time.After(5 * time.Minute):
-		// Timeout if user never clicks download
 		_ = dc.SendText("ERROR:Transfer timed out — no download initiated")
-		dc.Close()
 	}
 }
 
 func (s *WebRTCSender) streamFile(dc *webrtc.DataChannel) {
-	const chunkSize = 16 * 1024 // 16KB chunks
+	const chunkSize = 16 * 1024
 
 	if s.isText {
 		data := []byte(s.textData)
@@ -275,9 +305,12 @@ func (s *WebRTCSender) streamFile(dc *webrtc.DataChannel) {
 			time.Sleep(1 * time.Millisecond)
 		}
 		_ = dc.SendText("EOF")
+		s.mu.Lock()
 		s.downloads++
+		count := s.downloads
+		s.mu.Unlock()
 		if s.onComplete != nil {
-			s.onComplete(s.downloads)
+			s.onComplete(count)
 		}
 		return
 	}
@@ -313,8 +346,11 @@ func (s *WebRTCSender) streamFile(dc *webrtc.DataChannel) {
 	}
 
 	_ = dc.SendText("EOF")
+	s.mu.Lock()
 	s.downloads++
+	count := s.downloads
+	s.mu.Unlock()
 	if s.onComplete != nil {
-		s.onComplete(s.downloads)
+		s.onComplete(count)
 	}
 }
