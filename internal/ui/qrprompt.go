@@ -62,10 +62,10 @@ type QRPromptModel struct {
 func NewQRPromptModel() QRPromptModel {
 	return QRPromptModel{
 		activeField:   fieldMode,
-		modeIdx:       0,    // Local
-		downloadIdx:   0,    // Unlimited
-		expireIdx:     0,    // Never
-		cloudDisabled: true, // Cloud mode not yet implemented
+		modeIdx:       0, // Local
+		downloadIdx:   0, // Unlimited
+		expireIdx:     0, // Never
+		cloudDisabled: false,
 	}
 }
 
@@ -132,7 +132,7 @@ func (m QRPromptModel) View() string {
 
 	// Mode
 	modes := []string{"Local", "Cloud"}
-	modeDescs := []string{"Fast, home/hotspot WiFi", "Works everywhere (coming soon)"}
+	modeDescs := []string{"Fast, home/hotspot WiFi", "Works everywhere (WebRTC)"}
 	ptr := " "
 	if m.activeField == fieldMode {
 		ptr = pointerStyle.Render("›")

@@ -19,9 +19,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/darkprince558/jend/internal/config"
 	"github.com/darkprince558/jend/internal/core"
+	"github.com/darkprince558/jend/internal/signaling"
 	"github.com/darkprince558/jend/internal/transport"
 	"github.com/darkprince558/jend/internal/ui"
 	petname "github.com/dustinkirkland/golang-petname"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +43,7 @@ var (
 	useQR           bool
 	qrLimit         int
 	qrExpire        time.Duration
+	qrMode          string
 )
 
 var sendCmd = &cobra.Command{
@@ -165,7 +168,7 @@ Example:
 		// QR Mode: start local HTTP server instead of P2P sender
 		if useQR {
 			// Show interactive prompt if no explicit flags were set
-			if !cmd.Flags().Changed("qr-limit") && !cmd.Flags().Changed("qr-expire") && !headless {
+			if !cmd.Flags().Changed("qr-limit") && !cmd.Flags().Changed("qr-expire") && !cmd.Flags().Changed("qr-mode") && !headless {
 				opts, err := ui.RunQRPrompt()
 				if err != nil || opts.Cancelled {
 					fmt.Println("Cancelled.")
@@ -173,9 +176,14 @@ Example:
 				}
 				qrLimit = opts.MaxDownloads
 				qrExpire = opts.ExpireAfter
-				// opts.Mode will be used when cloud mode is implemented
+				qrMode = opts.Mode
 			}
-			startQRSender(filePath, textContent, isText, forceTar, forceZip)
+
+			if qrMode == "cloud" {
+				startCloudQRSender(filePath, textContent, isText, forceTar, forceZip)
+			} else {
+				startQRSender(filePath, textContent, isText, forceTar, forceZip)
+			}
 			return
 		}
 
@@ -202,6 +210,7 @@ func init() {
 	sendCmd.Flags().BoolVar(&useQR, "qr", false, "Generate a QR code for browser-based download (no JEND needed on receiver)")
 	sendCmd.Flags().IntVar(&qrLimit, "qr-limit", 0, "Max number of QR downloads allowed (0 = unlimited)")
 	sendCmd.Flags().DurationVar(&qrExpire, "qr-expire", 0, "Auto-expire the QR server after duration (e.g. 15m, 1h)")
+	sendCmd.Flags().StringVar(&qrMode, "qr-mode", "local", "QR transfer mode: local or cloud")
 }
 
 // startSender initializes the sender process.
@@ -408,6 +417,137 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 	if err := srv.Start(ctx); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+// startCloudQRSender handles the --qr --qr-mode=cloud mode.
+// It connects to MQTT for signaling, starts a WebRTC engine, and prints a QR code
+// pointing to the public web app at jend.app/qr#token.
+func startCloudQRSender(filePath string, textContent string, isText bool, forceTar, forceZip bool) {
+	var fileName string
+	var fileSize int64
+	var fileHash string
+
+	if isText {
+		fileName = "text-snippet.txt"
+		fileSize = int64(len(textContent))
+		h := sha256.Sum256([]byte(textContent))
+		fileHash = hex.EncodeToString(h[:])
+	} else {
+		info, err := os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		if info.IsDir() || forceTar {
+			fmt.Println("Compressing to .tar.gz...")
+			tempPath, err := core.CompressPath(filePath, "tar.gz")
+			if err != nil {
+				fmt.Printf("Error compressing: %v\n", err)
+				os.Exit(1)
+			}
+			defer func() { _ = os.Remove(tempPath) }()
+			filePath = tempPath
+			fileName = filepath.Base(filePath) + ".tar.gz"
+		} else if forceZip {
+			fmt.Println("Compressing to .zip...")
+			tempPath, err := core.CompressPath(filePath, "zip")
+			if err != nil {
+				fmt.Printf("Error compressing: %v\n", err)
+				os.Exit(1)
+			}
+			defer func() { _ = os.Remove(tempPath) }()
+			filePath = tempPath
+			fileName = filepath.Base(filePath) + ".zip"
+		} else {
+			fileName = info.Name()
+		}
+
+		info, err = os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		fileSize = info.Size()
+
+		fileHash, err = core.HashFile(filePath)
+		if err != nil {
+			fmt.Printf("Error hashing file: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Generate a unique token for this transfer
+	token := uuid.New().String()[:12]
+
+	// Connect to MQTT signaling
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	signalClient, err := signaling.NewIoTClient(ctx, "jend-qr-"+token)
+	if err != nil {
+		fmt.Printf("Error connecting to signaling server: %v\n", err)
+		fmt.Println("Cloud mode requires internet access for signaling.")
+		os.Exit(1)
+	}
+	defer signalClient.Disconnect()
+
+	// Create WebRTC sender
+	sender := transport.NewWebRTCSender(signalClient, transport.WebRTCSenderConfig{
+		Token:       token,
+		FilePath:    filePath,
+		FileName:    fileName,
+		FileSize:    fileSize,
+		IsText:      isText,
+		TextContent: textContent,
+		OnProgress: func(sent, total int64) {
+			pct := float64(sent) / float64(total) * 100
+			fmt.Printf("\r  Sending via WebRTC... %.0f%%", pct)
+		},
+		OnComplete: func(downloadCount int) {
+			fmt.Printf("\n\n  ✓ Download #%d complete (WebRTC)\n", downloadCount)
+			fmt.Println("  Waiting for more connections... (Ctrl+C to stop)")
+		},
+	})
+
+	// Handle interrupt
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Println("\n\nShutting down...")
+		cancel()
+	}()
+
+	// Generate QR code pointing to the public web app
+	cloudURL := fmt.Sprintf("https://jend.app/qr#%s", token)
+
+	// Print banner and QR
+	fmt.Println(ui.RenderBanner())
+	fmt.Println()
+	for _, line := range strings.Split(ui.RenderQR(cloudURL), "\n") {
+		fmt.Println("    " + line)
+	}
+	fmt.Println()
+
+	hintStyle := lipgloss.NewStyle().Foreground(ui.ColorSubtext).Faint(true)
+	urlStyle := lipgloss.NewStyle().Foreground(ui.ColorAccent).Bold(true)
+	nameStyle := lipgloss.NewStyle().Foreground(ui.ColorText).Bold(true)
+	sizeStyle := lipgloss.NewStyle().Foreground(ui.ColorSubtext)
+	modeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00F0FF")).Bold(true)
+
+	fmt.Printf("  %s %s\n", hintStyle.Render("Mode:"), modeStyle.Render("☁  Cloud (WebRTC)"))
+	fmt.Printf("  %s %s\n", hintStyle.Render("Scan to download:"), urlStyle.Render(cloudURL))
+	fmt.Printf("  %s %s\n", hintStyle.Render("File:"), nameStyle.Render(fileName)+" "+sizeStyle.Render("("+formatBytesLocal(fileSize)+")"))
+	fmt.Printf("  %s %s\n", hintStyle.Render("SHA-256:"), sizeStyle.Render(fileHash[:16]+"..."))
+	fmt.Println()
+	fmt.Println(hintStyle.Render("  Waiting for WebRTC connection... (Ctrl+C to cancel)"))
+	fmt.Println()
+
+	// Start the WebRTC sender (blocks until ctx is cancelled)
+	if err := sender.Run(ctx); err != nil {
+		fmt.Printf("WebRTC error: %v\n", err)
 	}
 }
 

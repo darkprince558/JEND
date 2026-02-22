@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JEND — Secure File Transfer</title>
+    <style>
+        :root {
+            --bg: #16161A;
+            --card: #242629;
+            --border: rgba(127, 90, 240, 0.15);
+            --primary: #7F5AF0;
+            --primary-glow: rgba(127, 90, 240, 0.35);
+            --accent: #00F0FF;
+            --text: #FFFFFE;
+            --subtext: #94A1B2;
+            --success: #2CB67D;
+            --error: #EF4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .logo {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.55rem;
+            line-height: 1.15;
+            color: var(--primary);
+            margin-bottom: 16px;
+            white-space: pre;
+            text-align: left;
+            display: inline-block;
+        }
+
+        .subtitle {
+            color: var(--subtext);
+            font-size: 0.85rem;
+            margin-bottom: 28px;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 28px 24px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+        }
+
+        .status-icon {
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+        }
+
+        .status-text {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .status-sub {
+            font-size: 0.8rem;
+            color: var(--subtext);
+        }
+
+        .file-info {
+            background: var(--bg);
+            border-radius: 10px;
+            padding: 14px;
+            margin-top: 16px;
+            text-align: left;
+        }
+
+        .file-name {
+            font-weight: 700;
+            font-size: 1rem;
+            word-break: break-all;
+        }
+
+        .file-meta {
+            font-size: 0.8rem;
+            color: var(--subtext);
+            margin-top: 4px;
+        }
+
+        .progress-wrap {
+            margin-top: 16px;
+            display: none;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: #1a1a1e;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            border-radius: 3px;
+            transition: width 0.2s ease;
+        }
+
+        .progress-text {
+            font-size: 0.8rem;
+            color: var(--subtext);
+            margin-top: 6px;
+        }
+
+        .done-card {
+            display: none;
+            margin-top: 16px;
+            padding: 16px;
+            background: rgba(44, 182, 125, 0.08);
+            border-radius: 10px;
+            border: 1px solid rgba(44, 182, 125, 0.2);
+        }
+
+        .done-card .msg {
+            color: var(--success);
+            font-weight: 700;
+            font-size: 1rem;
+        }
+
+        .error-card {
+            display: none;
+            margin-top: 16px;
+            padding: 16px;
+            background: rgba(239, 68, 68, 0.08);
+            border-radius: 10px;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .error-card .msg {
+            color: var(--error);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .footer {
+            color: var(--subtext);
+            font-size: 0.7rem;
+            margin-top: 24px;
+            opacity: 0.6;
+        }
+
+        .footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .badge {
+            display: inline-block;
+            font-size: 0.65rem;
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: rgba(127, 90, 240, 0.15);
+            color: var(--subtext);
+            margin-top: 8px;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .connecting {
+            animation: pulse 1.5s ease infinite;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <pre class="logo">     ██╗███████╗███╗   ██╗██████╗ 
+     ██║██╔════╝████╗  ██║██╔══██╗
+     ██║█████╗  ██╔██╗ ██║██║  ██║
+██   ██║██╔══╝  ██║╚██╗██║██║  ██║
+╚█████╔╝███████╗██║ ╚████║██████╔╝
+ ╚════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝ </pre>
+        <div class="subtitle">Secure, direct file transfer</div>
+
+        <div class="card">
+            <div class="status-icon connecting" id="statusIcon">🔗</div>
+            <div class="status-text" id="statusText">Connecting to sender...</div>
+            <div class="status-sub" id="statusSub">Establishing WebRTC connection</div>
+
+            <div class="file-info" id="fileInfo" style="display:none">
+                <div class="file-name" id="fileName"></div>
+                <div class="file-meta" id="fileMeta"></div>
+            </div>
+
+            <div class="progress-wrap" id="progressWrap">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">0%</div>
+            </div>
+
+            <div class="done-card" id="doneCard">
+                <div class="msg">✓ Transfer Complete</div>
+            </div>
+
+            <div class="error-card" id="errorCard">
+                <div class="msg" id="errorMsg">Connection failed</div>
+            </div>
+
+            <div class="badge" id="badge">WebRTC P2P</div>
+        </div>
+
+        <div class="footer">Powered by <a href="https://github.com/darkprince558/jend">JEND</a> · End-to-end encrypted
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            // Extract token from URL fragment: https://jend.app/qr#token
+            const token = location.hash.slice(1);
+            if (!token) {
+                showError('No transfer token found. Please scan a valid QR code.');
+                return;
+            }
+
+            // MQTT WebSocket connection to AWS IoT Core
+            // The signaling endpoint is injected at build time or configured here
+            const MQTT_WS_URL = 'wss://YOUR_IOT_ENDPOINT/mqtt'; // TODO: Configure
+            const TOPIC = 'jend/qr/' + token;
+
+            const $icon = document.getElementById('statusIcon');
+            const $status = document.getElementById('statusText');
+            const $sub = document.getElementById('statusSub');
+            const $fileInfo = document.getElementById('fileInfo');
+            const $fileName = document.getElementById('fileName');
+            const $fileMeta = document.getElementById('fileMeta');
+            const $progress = document.getElementById('progressWrap');
+            const $bar = document.getElementById('progressFill');
+            const $ptext = document.getElementById('progressText');
+            const $done = document.getElementById('doneCard');
+            const $error = document.getElementById('errorCard');
+            const $errMsg = document.getElementById('errorMsg');
+
+            const chunks = [];
+            let totalReceived = 0;
+            let fileName = 'download';
+
+            // ── WebRTC PeerConnection ──
+            const pc = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            });
+
+            // Create a DataChannel (the CLI will also create one on its side)
+            const dc = pc.createDataChannel('jend-file', { ordered: true });
+            dc.binaryType = 'arraybuffer';
+
+            dc.onopen = function () {
+                $icon.textContent = '📥';
+                $icon.className = 'status-icon';
+                $status.textContent = 'Receiving file...';
+                $sub.textContent = 'Streaming via WebRTC DataChannel';
+                $progress.style.display = 'block';
+            };
+
+            dc.onmessage = function (event) {
+                if (typeof event.data === 'string') {
+                    if (event.data === 'EOF') {
+                        const blob = new Blob(chunks);
+                        triggerSave(blob, fileName);
+                        return;
+                    }
+                    if (event.data.startsWith('ERROR:')) {
+                        showError(event.data.slice(6));
+                        return;
+                    }
+                    // File metadata message
+                    try {
+                        const meta = JSON.parse(event.data);
+                        if (meta.name) fileName = meta.name;
+                        $fileName.textContent = meta.name || 'File';
+                        $fileMeta.textContent = formatBytes(meta.size || 0);
+                        $fileInfo.style.display = 'block';
+                    } catch (e) { }
+                    return;
+                }
+                chunks.push(event.data);
+                totalReceived += event.data.byteLength;
+                // Update progress (we may not know total size yet)
+                $ptext.textContent = formatBytes(totalReceived) + ' received';
+            };
+
+            dc.onerror = function (e) {
+                showError('DataChannel error: ' + (e.message || 'Unknown'));
+            };
+
+            // Also handle DataChannels created by the remote (CLI)
+            pc.ondatachannel = function (event) {
+                const remoteDC = event.channel;
+                remoteDC.binaryType = 'arraybuffer';
+                remoteDC.onopen = dc.onopen;
+                remoteDC.onmessage = dc.onmessage;
+                remoteDC.onerror = dc.onerror;
+            };
+
+            // ── ICE Candidate Handling ──
+            const pendingCandidates = [];
+
+            pc.onicecandidate = function (e) {
+                if (e.candidate) {
+                    // Send to CLI via MQTT
+                    publishMQTT({
+                        type: 'ice',
+                        candidate: e.candidate.candidate,
+                        sdpMid: e.candidate.sdpMid,
+                        sdpMLineIndex: e.candidate.sdpMLineIndex
+                    });
+                }
+            };
+
+            // ── Signaling via MQTT ──
+            // For now, use a simple polling approach to the signaling server
+            // In production, this would use MQTT over WebSocket
+
+            // Create and send the SDP offer
+            pc.createOffer()
+                .then(function (offer) { return pc.setLocalDescription(offer); })
+                .then(function () {
+                    $status.textContent = 'Waiting for sender...';
+                    $sub.textContent = 'Signaling via MQTT';
+
+                    // Publish the SDP offer
+                    publishMQTT({
+                        type: 'offer',
+                        sdp: pc.localDescription.sdp
+                    });
+
+                    // Listen for the answer
+                    subscribeMQTT(function (msg) {
+                        if (msg.type === 'answer' && msg.sdp) {
+                            pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp })
+                                .then(function () {
+                                    // Add any pending ICE candidates
+                                    pendingCandidates.forEach(function (c) {
+                                        pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () { });
+                                    });
+                                })
+                                .catch(function (e) { showError('Failed to set remote description: ' + e); });
+                        } else if (msg.type === 'ice-server' && msg.candidate) {
+                            const candidate = {
+                                candidate: msg.candidate,
+                                sdpMid: msg.sdpMid || null,
+                                sdpMLineIndex: msg.sdpMLineIndex || 0
+                            };
+                            if (pc.remoteDescription) {
+                                pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(function () { });
+                            } else {
+                                pendingCandidates.push(candidate);
+                            }
+                        }
+                    });
+                })
+                .catch(function (e) { showError('WebRTC offer failed: ' + e); });
+
+            // ── Timeout ──
+            setTimeout(function () {
+                if (dc.readyState !== 'open') {
+                    showError('Connection timed out. The sender may no longer be available.');
+                }
+            }, 30000);
+
+            // ── MQTT Helpers (placeholder — needs real MQTT WebSocket client) ──
+            function publishMQTT(msg) {
+                // TODO: Implement MQTT WebSocket publish
+                // This will use the Paho MQTT.js client or similar
+                console.log('MQTT publish:', TOPIC, msg);
+            }
+
+            function subscribeMQTT(handler) {
+                // TODO: Implement MQTT WebSocket subscribe
+                // This will use the Paho MQTT.js client or similar
+                console.log('MQTT subscribe:', TOPIC);
+            }
+
+            // ── Helpers ──
+            function triggerSave(blob, name) {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                $progress.style.display = 'none';
+                $done.style.display = 'block';
+                $icon.textContent = '✅';
+                $status.textContent = 'Download Complete';
+                $sub.textContent = formatBytes(totalReceived) + ' received';
+            }
+
+            function showError(msg) {
+                $icon.textContent = '❌';
+                $icon.className = 'status-icon';
+                $status.textContent = 'Connection Failed';
+                $sub.textContent = '';
+                $errMsg.textContent = msg;
+                $error.style.display = 'block';
+            }
+
+            function formatBytes(b) {
+                if (b < 1024) return b + ' B';
+                if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+                if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+                return (b / 1073741824).toFixed(2) + ' GB';
+            }
+        })();
+    </script>
+</body>
+
+</html>
