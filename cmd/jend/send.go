@@ -330,13 +330,9 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 			pct := float64(sent) / float64(total) * 100
 			fmt.Printf("\r  Sending... %.0f%%", pct)
 		},
-		OnComplete: func() {
-			fmt.Println("\n\n  Download complete. File sent successfully.")
-			// Give a moment for the HTTP response to flush, then shut down
-			go func() {
-				time.Sleep(2 * time.Second)
-				cancel()
-			}()
+		OnComplete: func(downloadCount int) {
+			fmt.Printf("\n\n  ✓ Download #%d complete\n", downloadCount)
+			fmt.Println("  Server still running — others can scan too. (Ctrl+C to stop)")
 		},
 	})
 

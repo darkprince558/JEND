@@ -29,15 +29,15 @@ type QRServerConfig struct {
 	Token       string
 	Port        int
 	OnProgress  func(sent, total int64)
-	OnComplete  func()
+	OnComplete  func(downloadCount int)
 }
 
 // QRServer is a lightweight HTTP server that serves a single file for download.
 type QRServer struct {
-	config     QRServerConfig
-	server     *http.Server
-	mu         sync.Mutex
-	downloaded bool
+	config        QRServerConfig
+	server        *http.Server
+	mu            sync.Mutex
+	downloadCount int
 }
 
 // NewQRServer creates a new QR download server.
@@ -126,14 +126,6 @@ func (s *QRServer) handleInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *QRServer) handleDownload(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	if s.downloaded {
-		s.mu.Unlock()
-		http.Error(w, "File has already been downloaded", http.StatusGone)
-		return
-	}
-	s.mu.Unlock()
-
 	if s.config.IsText {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, "jend-text.txt"))
@@ -141,10 +133,11 @@ func (s *QRServer) handleDownload(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(s.config.TextContent))
 
 		s.mu.Lock()
-		s.downloaded = true
+		s.downloadCount++
+		count := s.downloadCount
 		s.mu.Unlock()
 		if s.config.OnComplete != nil {
-			go s.config.OnComplete()
+			go s.config.OnComplete(count)
 		}
 		return
 	}
@@ -190,10 +183,11 @@ func (s *QRServer) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	s.downloaded = true
+	s.downloadCount++
+	count := s.downloadCount
 	s.mu.Unlock()
 	if s.config.OnComplete != nil {
-		go s.config.OnComplete()
+		go s.config.OnComplete(count)
 	}
 }
 func (s *QRServer) handlePage(w http.ResponseWriter, r *http.Request) {
