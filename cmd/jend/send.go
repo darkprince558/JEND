@@ -342,11 +342,8 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 
 	ipv4URL, ipv6URL := srv.URLs()
 
-	// Prefer IPv6 for QR code (bypasses AP Isolation on school Wi-Fi)
+	// Use IPv4 for QR code (Safari/mobile browsers don't support IPv6 link-local URLs)
 	qrURL := ipv4URL
-	if ipv6URL != "" {
-		qrURL = ipv6URL
-	}
 
 	// Print banner and QR
 	fmt.Println(ui.RenderBanner())
