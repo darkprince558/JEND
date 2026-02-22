@@ -251,7 +251,6 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 	var fileName string
 	var fileSize int64
 	var fileHash string
-	var err error
 
 	if isText {
 		fileName = "text-snippet.txt"
@@ -306,13 +305,6 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 		}
 	}
 
-	// Get local IP
-	localIP, err := core.GetLocalIP()
-	if err != nil {
-		fmt.Printf("Error detecting local IP: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Context for cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -348,13 +340,19 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 		},
 	})
 
-	downloadURL := srv.URL(localIP)
+	ipv4URL, ipv6URL := srv.URLs()
+
+	// Prefer IPv6 for QR code (bypasses AP Isolation on school Wi-Fi)
+	qrURL := ipv4URL
+	if ipv6URL != "" {
+		qrURL = ipv6URL
+	}
 
 	// Print banner and QR
 	fmt.Println(ui.RenderBanner())
 	fmt.Println()
 	// Indent QR code by 4 spaces to align with banner/text
-	for _, line := range strings.Split(ui.RenderQR(downloadURL), "\n") {
+	for _, line := range strings.Split(ui.RenderQR(qrURL), "\n") {
 		fmt.Println("    " + line)
 	}
 	fmt.Println()
@@ -365,7 +363,10 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 	nameStyle := lipgloss.NewStyle().Foreground(ui.ColorText).Bold(true)
 	sizeStyle := lipgloss.NewStyle().Foreground(ui.ColorSubtext)
 
-	fmt.Printf("  %s %s\n", hintStyle.Render("Scan to download:"), urlStyle.Render(downloadURL))
+	fmt.Printf("  %s %s\n", hintStyle.Render("Scan to download:"), urlStyle.Render(qrURL))
+	if ipv6URL != "" && ipv4URL != "" {
+		fmt.Printf("  %s %s\n", hintStyle.Render("IPv4 fallback:"), urlStyle.Render(ipv4URL))
+	}
 	fmt.Printf("  %s %s\n", hintStyle.Render("File:"), nameStyle.Render(fileName)+" "+sizeStyle.Render("("+formatBytesLocal(fileSize)+")"))
 	fmt.Println()
 	fmt.Println(hintStyle.Render("  Waiting for download... (Ctrl+C to cancel)"))
