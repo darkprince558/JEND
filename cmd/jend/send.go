@@ -521,7 +521,7 @@ func startCloudQRSender(filePath string, textContent string, isText bool, forceT
 	}()
 
 	// Generate QR code pointing to the public web app
-	cloudURL := fmt.Sprintf("https://jend.app/qr#%s", token)
+	cloudURL := fmt.Sprintf("https://d36yyit6n9gsha.cloudfront.net/qr/index.html#%s", token)
 
 	// Print banner and QR
 	fmt.Println(ui.RenderBanner())
