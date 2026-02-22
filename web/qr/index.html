@@ -56,6 +56,48 @@
             border: 1px solid rgba(127, 90, 240, 0.15)
         }
 
+        /* ── Code Entry Landing ── */
+        .code-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #94A1B2;
+            margin-bottom: 16px
+        }
+
+        .code-input-wrap {
+            position: relative;
+            margin-bottom: 20px
+        }
+
+        .code-input {
+            width: 100%;
+            padding: 18px 20px;
+            font-size: 1.6rem;
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            font-weight: 700;
+            letter-spacing: 0.25em;
+            text-align: center;
+            text-transform: uppercase;
+            background: #16161A;
+            border: 2px solid rgba(127, 90, 240, 0.3);
+            border-radius: 12px;
+            color: #FFFFFE;
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .code-input:focus {
+            border-color: #7F5AF0;
+            box-shadow: 0 0 0 3px rgba(127, 90, 240, 0.15)
+        }
+
+        .code-input::placeholder {
+            color: rgba(255, 255, 255, 0.15);
+            letter-spacing: 0.2em
+        }
+
+        /* ── Shared ── */
         .file-name {
             font-size: 1.1rem;
             font-weight: 700;
@@ -153,17 +195,17 @@
             color: #FFFFFE
         }
 
-        .btn-download {
+        .btn-primary {
             background: linear-gradient(135deg, #7F5AF0, #6B3FD4);
             box-shadow: 0 4px 24px rgba(127, 90, 240, 0.35)
         }
 
-        .btn-download:hover {
+        .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 32px rgba(127, 90, 240, 0.5)
         }
 
-        .btn-download:active {
+        .btn-primary:active {
             transform: translateY(0)
         }
 
@@ -226,7 +268,7 @@
 
         .connecting-card {
             text-align: center;
-            padding: 40px 20px
+            padding: 30px 10px
         }
 
         .connecting-card .spinner {
@@ -265,6 +307,23 @@
             color: #00F0FF;
             margin-bottom: 12px;
             letter-spacing: 0.05em
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 16px 0;
+            color: #94A1B2;
+            font-size: 0.75rem
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06)
         }
 
         @keyframes pulse {
@@ -309,7 +368,25 @@
  ╚════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝ </pre>
         <div class="subtitle">Someone wants to send you a file</div>
 
-        <div class="card" id="connectingCard">
+        <!-- Landing: Enter code manually (shown when no #token in URL) -->
+        <div class="card" id="landingCard" style="display:none">
+            <div class="badge">CLOUD · WEBRTC</div>
+            <div class="code-label">Enter transfer code</div>
+            <div class="code-input-wrap">
+                <input class="code-input" id="codeInput" type="text" maxlength="6" placeholder="Af38HJ"
+                    autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" />
+            </div>
+            <button class="btn btn-primary" id="connectBtn" onclick="submitCode()">Connect</button>
+            <div class="error-card" id="landingError">
+                <div class="msg" id="landingErrorMsg"></div>
+            </div>
+            <div class="divider">or scan a QR code</div>
+            <div style="color:#94A1B2;font-size:0.8rem">Use <strong style="color:#FFFFFE">jend send --qr</strong> on the
+                sender's machine</div>
+        </div>
+
+        <!-- Connecting state -->
+        <div class="card" id="connectingCard" style="display:none">
             <div class="badge">CLOUD · WEBRTC</div>
             <div class="connecting-card">
                 <div class="spinner pulse">🔗</div>
@@ -318,6 +395,7 @@
             </div>
         </div>
 
+        <!-- File info + Download -->
         <div class="card" id="fileCard" style="display:none">
             <div class="badge">CLOUD · WEBRTC</div>
             <div class="file-name" id="fileName"></div>
@@ -336,7 +414,7 @@
                 </div>
             </div>
             <div id="textPreviewWrap"></div>
-            <button class="btn btn-download" id="downloadBtn" onclick="startDownload()">Download</button>
+            <button class="btn btn-primary" id="downloadBtn" onclick="startDownload()">Download</button>
             <div class="progress-wrap" id="progressWrap">
                 <div class="progress-bar">
                     <div class="progress-fill" id="progressFill"></div>
@@ -361,278 +439,255 @@
             var IOT_ENDPOINT = 'a10ofg7qwmr003-ats.iot.us-east-1.amazonaws.com';
             var TURN_AUTH_API = 'https://ei6hnj0udh.execute-api.us-east-1.amazonaws.com/turn-auth';
 
-            var token = location.hash.slice(1);
-            if (!token) { showError('No transfer token. Scan a valid QR code.'); return; }
+            // ── Determine token: from URL hash or from manual code entry ──
+            var token = location.hash.slice(1).trim();
 
-            var TOPIC = 'jend/signal/qr-' + token;
-            // Each browser tab/session gets its own unique ID to prevent SDP collisions
-            var SESSION_ID = 'sess-' + Math.random().toString(36).substr(2, 12);
+            if (!token) {
+                // Show the code input landing page
+                document.getElementById('landingCard').style.display = 'block';
 
-            var pc = null;
-            var dc = null;
-            var mqttClient = null;
-            var pendingCandidates = [];
-            var chunks = [];
-            var totalReceived = 0;
-            var fileMeta = null;
-            var downloadStarted = false;
-            var iceServers = [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ];
+                // Auto-focus the input
+                setTimeout(function () {
+                    document.getElementById('codeInput').focus();
+                }, 100);
 
-            setConnectStatus('Authenticating...', 'Getting temporary credentials');
-
-            // Step 1: Cognito credentials
-            AWS.config.region = REGION;
-            AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: IDENTITY_POOL_ID });
-            AWS.config.credentials.get(function (err) {
-                if (err) { showError('Auth failed: ' + err.message); return; }
-                setConnectStatus('Fetching TURN credentials...', 'Setting up relay servers');
-                fetchTURNCredentials();
-            });
-
-            // Step 2: Fetch TURN credentials for NAT traversal on restrictive networks
-            function fetchTURNCredentials() {
-                fetch(TURN_AUTH_API)
-                    .then(function (r) { return r.json(); })
-                    .then(function (creds) {
-                        if (creds.uris && creds.username && creds.password) {
-                            iceServers.push({
-                                urls: creds.uris,
-                                username: creds.username,
-                                credential: creds.password
-                            });
-                        }
-                        setConnectStatus('Connecting...', 'Connecting to signaling server');
-                        connectMQTT();
-                    })
-                    .catch(function () {
-                        // If TURN fetch fails, proceed with STUN only
-                        setConnectStatus('Connecting...', 'Connecting to signaling server');
-                        connectMQTT();
-                    });
-            }
-
-            // Step 3: MQTT
-            function connectMQTT() {
-                var creds = AWS.config.credentials;
-                var url = getSignedUrl(IOT_ENDPOINT, REGION, creds);
-                var clientId = 'jend-browser-' + Math.random().toString(36).substr(2, 8);
-
-                mqttClient = new Paho.Client(url, clientId);
-                mqttClient.onConnectionLost = function (resp) {
-                    if (resp.errorCode !== 0) console.log('MQTT lost:', resp.errorMessage);
-                };
-                mqttClient.onMessageArrived = function (msg) {
-                    try { handleSignalingMessage(JSON.parse(msg.payloadString)); } catch (e) { }
-                };
-                mqttClient.connect({
-                    useSSL: true, timeout: 10, mqttVersion: 4,
-                    onSuccess: function () {
-                        mqttClient.subscribe(TOPIC, { qos: 1 });
-                        setConnectStatus('Signaling connected!', 'Sending WebRTC offer to sender');
-                        startWebRTC();
-                    },
-                    onFailure: function (err) {
-                        showError('MQTT connect failed: ' + (err.errorMessage || 'Unknown'));
-                    }
+                // Handle Enter key in code input
+                document.getElementById('codeInput').addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') submitCode();
                 });
+
+                // Auto-format: uppercase as user types
+                document.getElementById('codeInput').addEventListener('input', function (e) {
+                    var v = e.target.value.replace(/[^A-Za-z0-9]/g, '');
+                    e.target.value = v;
+                });
+
+                return; // Wait for the user to submit the code
             }
 
-            // Step 4: WebRTC
-            function startWebRTC() {
-                pc = new RTCPeerConnection({ iceServers: iceServers });
+            startConnection(token);
 
-                dc = pc.createDataChannel('jend-file', { ordered: true });
-                dc.binaryType = 'arraybuffer';
-                dc.onmessage = handleDCMessage;
-                dc.onopen = function () {
-                    setConnectStatus('Connected to sender!', 'Waiting for file info...');
-                };
-
-                // Also handle remote-created data channels
-                pc.ondatachannel = function (e) {
-                    var rdc = e.channel;
-                    rdc.binaryType = 'arraybuffer';
-                    rdc.onmessage = handleDCMessage;
-                    rdc.onopen = function () {
-                        setConnectStatus('Connected to sender!', 'Waiting for file info...');
-                        dc = rdc;
-                    };
-                };
-
-                // Include session ID in ICE candidates so CLI routes them correctly
-                pc.onicecandidate = function (e) {
-                    if (e.candidate) {
-                        publishMQTT({
-                            type: 'ice',
-                            candidate: e.candidate.candidate,
-                            sdpMid: e.candidate.sdpMid,
-                            sdpMLineIndex: e.candidate.sdpMLineIndex,
-                            sessionId: SESSION_ID
-                        });
-                    }
-                };
-
-                // Create offer with session ID so CLI can track this specific browser
-                pc.createOffer().then(function (offer) {
-                    return pc.setLocalDescription(offer);
-                }).then(function () {
-                    publishMQTT({ type: 'offer', sdp: pc.localDescription.sdp, sessionId: SESSION_ID });
-                }).catch(function (e) { showError('Offer failed: ' + e); });
-            }
-
-            function handleSignalingMessage(msg) {
-                // Only process messages meant for this session or untagged (legacy)
-                if (msg.sessionId && msg.sessionId !== SESSION_ID) return;
-
-                if (msg.type === 'answer' && msg.sdp) {
-                    pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp })
-                        .then(function () {
-                            pendingCandidates.forEach(function (c) {
-                                pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () { });
-                            });
-                            pendingCandidates = [];
-                        })
-                        .catch(function (e) { showError('SDP error: ' + e.message); });
-                } else if (msg.type === 'ice-server' && msg.candidate) {
-                    var c = {
-                        candidate: msg.candidate, sdpMid: msg.sdpMid || null,
-                        sdpMLineIndex: msg.sdpMLineIndex || 0
-                    };
-                    if (pc && pc.remoteDescription) {
-                        pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () { });
-                    } else {
-                        pendingCandidates.push(c);
-                    }
-                }
-            }
-
-            function handleDCMessage(e) {
-                if (typeof e.data === 'string') {
-                    if (e.data === 'EOF') { triggerSave(); return; }
-                    if (e.data.startsWith('ERROR:')) { showError(e.data.slice(6)); return; }
-                    try {
-                        var msg = JSON.parse(e.data);
-                        if (msg.type === 'meta') { fileMeta = msg; showFileInfo(msg); return; }
-                    } catch (ex) { }
+            window.submitCode = function () {
+                var code = document.getElementById('codeInput').value.trim();
+                if (code.length < 4) {
+                    document.getElementById('landingError').style.display = 'block';
+                    document.getElementById('landingErrorMsg').textContent = 'Code must be at least 4 characters.';
                     return;
                 }
-                if (!downloadStarted) return;
-                chunks.push(e.data);
-                totalReceived += e.data.byteLength;
-                if (fileMeta && fileMeta.size > 0) {
-                    var pct = Math.min(100, totalReceived / fileMeta.size * 100);
-                    document.getElementById('progressFill').style.width = pct.toFixed(0) + '%';
-                    document.getElementById('progressText').textContent = pct.toFixed(0) + '% downloading...';
-                } else {
-                    document.getElementById('progressText').textContent = formatBytes(totalReceived) + ' received';
-                }
-            }
-
-            function showFileInfo(meta) {
-                document.getElementById('connectingCard').style.display = 'none';
-                document.getElementById('fileCard').style.display = 'block';
-                document.getElementById('fileName').textContent = meta.name || 'File';
-                document.getElementById('fileSize').textContent = formatBytes(meta.size || 0);
-                document.getElementById('fileType').textContent = getFileType(meta.name, meta.isText);
-                var h = meta.hash || '';
-                document.getElementById('fileHash').textContent = h.length > 16 ? h.substr(0, 16) + '...' : h;
-                if (meta.isText && meta.textPreview) {
-                    var wrap = document.getElementById('textPreviewWrap');
-                    var t = meta.textPreview.trim();
-                    if (t.startsWith('http://') || t.startsWith('https://')) {
-                        wrap.innerHTML = '<div class="link-preview"><a href="' + t + '" target="_blank" rel="noopener">' + t + '</a></div>';
-                    } else {
-                        wrap.innerHTML = '<div class="text-preview">' + meta.textPreview + '</div>';
-                    }
-                }
-            }
-
-            window.startDownload = function () {
-                downloadStarted = true;
-                document.getElementById('downloadBtn').style.display = 'none';
-                document.getElementById('progressWrap').style.display = 'block';
-                if (dc && dc.readyState === 'open') dc.send('ready');
+                document.getElementById('landingCard').style.display = 'none';
+                startConnection(code);
             };
 
-            function triggerSave() {
-                var blob = new Blob(chunks);
-                var a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = (fileMeta && fileMeta.name) ? fileMeta.name : 'download';
-                document.body.appendChild(a); a.click(); a.remove();
-                document.getElementById('progressWrap').style.display = 'none';
-                document.getElementById('doneMsg').style.display = 'block';
+            function startConnection(tok) {
+                token = tok;
+                var TOPIC = 'jend/signal/qr-' + token;
+                var SESSION_ID = 'sess-' + Math.random().toString(36).substr(2, 12);
+
+                var pc = null, dc = null, mqttClient = null;
+                var pendingCandidates = [], chunks = [], totalReceived = 0;
+                var fileMeta = null, downloadStarted = false;
+                var iceServers = [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ];
+
+                document.getElementById('connectingCard').style.display = 'block';
+                setStatus('Authenticating...', 'Getting temporary credentials');
+
+                // Step 1: Cognito credentials
+                AWS.config.region = REGION;
+                AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: IDENTITY_POOL_ID });
+                AWS.config.credentials.get(function (err) {
+                    if (err) { showError('Auth failed: ' + err.message); return; }
+                    setStatus('Fetching TURN credentials...', 'Setting up relay for NAT traversal');
+                    fetchTURN();
+                });
+
+                function fetchTURN() {
+                    fetch(TURN_AUTH_API)
+                        .then(function (r) { return r.json(); })
+                        .then(function (creds) {
+                            if (creds.uris && creds.username && creds.password) {
+                                iceServers.push({ urls: creds.uris, username: creds.username, credential: creds.password });
+                            }
+                            connectMQTT();
+                        })
+                        .catch(function () { connectMQTT(); });
+                }
+
+                function connectMQTT() {
+                    setStatus('Connecting...', 'Connecting to signaling server');
+                    var url = getSignedUrl(IOT_ENDPOINT, REGION, AWS.config.credentials);
+                    var clientId = 'jend-browser-' + Math.random().toString(36).substr(2, 8);
+                    mqttClient = new Paho.Client(url, clientId);
+                    mqttClient.onConnectionLost = function (r) { if (r.errorCode) console.log('MQTT:', r.errorMessage); };
+                    mqttClient.onMessageArrived = function (m) {
+                        try { handleSignal(JSON.parse(m.payloadString)); } catch (e) { }
+                    };
+                    mqttClient.connect({
+                        useSSL: true, timeout: 10, mqttVersion: 4,
+                        onSuccess: function () {
+                            mqttClient.subscribe(TOPIC, { qos: 1 });
+                            setStatus('Waiting for sender...', 'Sending WebRTC offer · Code: ' + token);
+                            startWebRTC();
+                        },
+                        onFailure: function (e) { showError('Signaling failed: ' + (e.errorMessage || 'Check your connection')); }
+                    });
+                }
+
+                function startWebRTC() {
+                    pc = new RTCPeerConnection({ iceServers: iceServers });
+                    dc = pc.createDataChannel('jend-file', { ordered: true });
+                    dc.binaryType = 'arraybuffer';
+                    dc.onmessage = onDCMsg;
+                    dc.onopen = function () { setStatus('Connected!', 'Waiting for file info...'); };
+
+                    pc.ondatachannel = function (e) {
+                        dc = e.channel; dc.binaryType = 'arraybuffer';
+                        dc.onmessage = onDCMsg;
+                        dc.onopen = function () { setStatus('Connected!', 'Waiting for file info...'); };
+                    };
+
+                    pc.onicecandidate = function (e) {
+                        if (e.candidate) publishMQTT({
+                            type: 'ice', candidate: e.candidate.candidate,
+                            sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex, sessionId: SESSION_ID
+                        });
+                    };
+
+                    pc.createOffer()
+                        .then(function (o) { return pc.setLocalDescription(o); })
+                        .then(function () { publishMQTT({ type: 'offer', sdp: pc.localDescription.sdp, sessionId: SESSION_ID }); })
+                        .catch(function (e) { showError('WebRTC offer failed: ' + e); });
+                }
+
+                function handleSignal(msg) {
+                    if (msg.sessionId && msg.sessionId !== SESSION_ID) return;
+                    if (msg.type === 'answer' && msg.sdp) {
+                        pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp })
+                            .then(function () {
+                                pendingCandidates.forEach(function (c) { pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () { }); });
+                                pendingCandidates = [];
+                            }).catch(function (e) { showError('Connection error: ' + e.message); });
+                    } else if (msg.type === 'ice-server' && msg.candidate) {
+                        var c = { candidate: msg.candidate, sdpMid: msg.sdpMid || null, sdpMLineIndex: msg.sdpMLineIndex || 0 };
+                        if (pc && pc.remoteDescription) { pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () { }); }
+                        else { pendingCandidates.push(c); }
+                    }
+                }
+
+                function onDCMsg(e) {
+                    if (typeof e.data === 'string') {
+                        if (e.data === 'EOF') { triggerSave(); return; }
+                        if (e.data.startsWith('ERROR:')) { showError(e.data.slice(6)); return; }
+                        try {
+                            var m = JSON.parse(e.data);
+                            if (m.type === 'meta') { fileMeta = m; showFileInfo(m); return; }
+                        } catch (x) { }
+                        return;
+                    }
+                    if (!downloadStarted) return;
+                    chunks.push(e.data); totalReceived += e.data.byteLength;
+                    if (fileMeta && fileMeta.size > 0) {
+                        var pct = Math.min(100, totalReceived / fileMeta.size * 100);
+                        document.getElementById('progressFill').style.width = pct.toFixed(0) + '%';
+                        document.getElementById('progressText').textContent = pct.toFixed(0) + '% downloading...';
+                    }
+                }
+
+                function showFileInfo(meta) {
+                    document.getElementById('connectingCard').style.display = 'none';
+                    document.getElementById('fileCard').style.display = 'block';
+                    document.getElementById('fileName').textContent = meta.name || 'File';
+                    document.getElementById('fileSize').textContent = fmtBytes(meta.size || 0);
+                    document.getElementById('fileType').textContent = getType(meta.name, meta.isText);
+                    var h = meta.hash || '';
+                    document.getElementById('fileHash').textContent = h.length > 16 ? h.substr(0, 16) + '...' : h;
+                    if (meta.isText && meta.textPreview) {
+                        var wrap = document.getElementById('textPreviewWrap');
+                        var t = meta.textPreview.trim();
+                        if (t.startsWith('http://') || t.startsWith('https://')) {
+                            wrap.innerHTML = '<div class="link-preview"><a href="' + t + '" target="_blank" rel="noopener">' + t + '</a></div>';
+                        } else {
+                            wrap.innerHTML = '<div class="text-preview">' + meta.textPreview + '</div>';
+                        }
+                    }
+                }
+
+                window.startDownload = function () {
+                    downloadStarted = true;
+                    document.getElementById('downloadBtn').style.display = 'none';
+                    document.getElementById('progressWrap').style.display = 'block';
+                    if (dc && dc.readyState === 'open') dc.send('ready');
+                };
+
+                function triggerSave() {
+                    var a = document.createElement('a');
+                    a.href = URL.createObjectURL(new Blob(chunks));
+                    a.download = (fileMeta && fileMeta.name) ? fileMeta.name : 'download';
+                    document.body.appendChild(a); a.click(); a.remove();
+                    document.getElementById('progressWrap').style.display = 'none';
+                    document.getElementById('doneMsg').style.display = 'block';
+                }
+
+                function publishMQTT(obj) {
+                    var m = new Paho.Message(JSON.stringify(obj));
+                    m.destinationName = TOPIC; m.qos = 1; mqttClient.send(m);
+                }
+
+                function showError(msg) {
+                    document.getElementById('connectingCard').style.display = 'none';
+                    document.getElementById('fileCard').style.display = 'block';
+                    document.getElementById('downloadBtn').style.display = 'none';
+                    document.getElementById('errorCard').style.display = 'block';
+                    document.getElementById('errorMsg').textContent = msg;
+                }
+
+                function setStatus(s, sub) {
+                    document.getElementById('connectStatus').textContent = s;
+                    document.getElementById('connectSub').textContent = sub;
+                }
+
+                setTimeout(function () {
+                    if (!fileMeta) showError('Timed out. The sender may have stopped or the code is incorrect.');
+                }, 60000);
             }
 
-            function showError(msg) {
-                document.getElementById('connectingCard').style.display = 'none';
-                document.getElementById('fileCard').style.display = 'block';
-                document.getElementById('downloadBtn').style.display = 'none';
-                document.getElementById('errorCard').style.display = 'block';
-                document.getElementById('errorMsg').textContent = msg;
-            }
-
-            function setConnectStatus(s, sub) {
-                document.getElementById('connectStatus').textContent = s;
-                document.getElementById('connectSub').textContent = sub;
-            }
-
-            function publishMQTT(obj) {
-                var msg = new Paho.Message(JSON.stringify(obj));
-                msg.destinationName = TOPIC; msg.qos = 1;
-                mqttClient.send(msg);
-            }
-
-            function getFileType(name, isText) {
+            // ── Helpers ──
+            function getType(name, isText) {
                 if (isText) return 'Text Snippet';
                 if (!name) return 'File';
                 var ext = name.split('.').pop().toLowerCase();
                 return {
                     zip: 'ZIP Archive', tar: 'TAR Archive', gz: 'GZ Archive', rar: 'RAR Archive', '7z': '7Z Archive',
                     jpg: 'Image', jpeg: 'Image', png: 'Image', gif: 'Image', webp: 'Image', svg: 'Image',
-                    mp4: 'Video', mov: 'Video', avi: 'Video', mkv: 'Video',
-                    mp3: 'Audio', wav: 'Audio', flac: 'Audio', aac: 'Audio',
-                    pdf: 'PDF Document', doc: 'Word Document', docx: 'Word Document',
-                    ppt: 'Presentation', pptx: 'Presentation',
+                    mp4: 'Video', mov: 'Video', avi: 'Video', mkv: 'Video', mp3: 'Audio', wav: 'Audio', flac: 'Audio', aac: 'Audio',
+                    pdf: 'PDF Document', doc: 'Word Document', docx: 'Word Document', ppt: 'Presentation', pptx: 'Presentation',
                     xls: 'Spreadsheet', xlsx: 'Spreadsheet', csv: 'Spreadsheet'
                 }[ext] || (ext + ' file');
             }
 
-            function formatBytes(b) {
+            function fmtBytes(b) {
                 if (b < 1024) return b + ' B';
                 if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
                 if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
                 return (b / 1073741824).toFixed(2) + ' GB';
             }
 
-            // SigV4 signed WebSocket URL
             function getSignedUrl(host, region, creds) {
                 var dt = (new Date()).toISOString().replace(/[:\-]|\.\d{3}/g, '');
-                var date = dt.substr(0, 8);
-                var svc = 'iotdevicegateway', alg = 'AWS4-HMAC-SHA256';
-                var scope = date + '/' + region + '/' + svc + '/aws4_request';
-                var qs = 'X-Amz-Algorithm=' + alg;
-                qs += '&X-Amz-Credential=' + encodeURIComponent(creds.accessKeyId + '/' + scope);
-                qs += '&X-Amz-Date=' + dt + '&X-Amz-SignedHeaders=host';
+                var d = dt.substr(0, 8), svc = 'iotdevicegateway', alg = 'AWS4-HMAC-SHA256';
+                var scope = d + '/' + region + '/' + svc + '/aws4_request';
+                var qs = 'X-Amz-Algorithm=' + alg + '&X-Amz-Credential=' + encodeURIComponent(creds.accessKeyId + '/' + scope) + '&X-Amz-Date=' + dt + '&X-Amz-SignedHeaders=host';
                 var cr = 'GET\n/mqtt\n' + qs + '\nhost:' + host + '\n\nhost\n' + sha256('');
-                var sig = hmacHex(getSignatureKey(creds.secretAccessKey, date, region, svc), alg + '\n' + dt + '\n' + scope + '\n' + sha256(cr));
-                qs += '&X-Amz-Signature=' + sig;
+                qs += '&X-Amz-Signature=' + hmacHex(getSigKey(creds.secretAccessKey, d, region, svc), alg + '\n' + dt + '\n' + scope + '\n' + sha256(cr));
                 if (creds.sessionToken) qs += '&X-Amz-Security-Token=' + encodeURIComponent(creds.sessionToken);
                 return 'wss://' + host + '/mqtt?' + qs;
             }
             function sha256(m) { return AWS.util.crypto.sha256(m, 'hex'); }
-            function hmac(k, m) { return AWS.util.crypto.hmac(k, m, 'buffer'); }
             function hmacHex(k, m) { return AWS.util.crypto.hmac(k, m, 'hex'); }
-            function getSignatureKey(key, d, r, s) { return hmac(hmac(hmac(hmac('AWS4' + key, d), r), s), 'aws4_request'); }
-
-            setTimeout(function () {
-                if (!fileMeta && document.getElementById('connectingCard').style.display !== 'none') {
-                    showError('Connection timed out. The sender may no longer be available.');
-                }
-            }, 60000);
+            function hmac(k, m) { return AWS.util.crypto.hmac(k, m, 'buffer'); }
+            function getSigKey(key, d, r, s) { return hmac(hmac(hmac(hmac('AWS4' + key, d), r), s), 'aws4_request'); }
         })();
     </script>
 </body>

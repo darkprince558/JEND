@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -23,7 +24,6 @@ import (
 	"github.com/darkprince558/jend/internal/transport"
 	"github.com/darkprince558/jend/internal/ui"
 	petname "github.com/dustinkirkland/golang-petname"
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -478,8 +478,8 @@ func startCloudQRSender(filePath string, textContent string, isText bool, forceT
 		}
 	}
 
-	// Generate a unique token for this transfer
-	token := uuid.New().String()[:12]
+	// Generate a short 6-char alphanumeric transfer code (e.g. Af38HJ)
+	token := generateTransferCode()
 
 	// Connect to MQTT signaling
 	ctx, cancel := context.WithCancel(context.Background())
@@ -537,11 +537,20 @@ func startCloudQRSender(filePath string, textContent string, isText bool, forceT
 	nameStyle := lipgloss.NewStyle().Foreground(ui.ColorText).Bold(true)
 	sizeStyle := lipgloss.NewStyle().Foreground(ui.ColorSubtext)
 	modeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00F0FF")).Bold(true)
+	codeStyle := lipgloss.NewStyle().
+		Foreground(ui.ColorText).
+		Background(lipgloss.Color("#242629")).
+		Bold(true).
+		Padding(0, 2).
+		MarginLeft(2)
 
 	fmt.Printf("  %s %s\n", hintStyle.Render("Mode:"), modeStyle.Render("☁  Cloud (WebRTC)"))
-	fmt.Printf("  %s %s\n", hintStyle.Render("Scan to download:"), urlStyle.Render(cloudURL))
+	fmt.Printf("  %s %s\n", hintStyle.Render("Or visit:"), urlStyle.Render("d36yyit6n9gsha.cloudfront.net/qr"))
 	fmt.Printf("  %s %s\n", hintStyle.Render("File:"), nameStyle.Render(fileName)+" "+sizeStyle.Render("("+formatBytesLocal(fileSize)+")"))
 	fmt.Printf("  %s %s\n", hintStyle.Render("SHA-256:"), sizeStyle.Render(fileHash[:16]+"..."))
+	fmt.Println()
+	fmt.Printf("  %s\n", hintStyle.Render("Or enter this code on the website:"))
+	fmt.Println(codeStyle.Render(token))
 	fmt.Println()
 	fmt.Println(hintStyle.Render("  Waiting for WebRTC connection... (Ctrl+C to cancel)"))
 	fmt.Println()
@@ -564,4 +573,17 @@ func formatBytesLocal(b int64) string {
 	}
 	suffixes := []string{"KB", "MB", "GB", "TB"}
 	return fmt.Sprintf("%.1f %s", float64(b)/float64(div), suffixes[exp])
+}
+
+// generateTransferCode creates a 6-character alphanumeric code (e.g. "Af38HJ").
+// Uses crypto/rand so codes are unpredictable.
+func generateTransferCode() string {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	code := make([]byte, 6)
+	for i := range code {
+		code[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	return string(code)
 }
