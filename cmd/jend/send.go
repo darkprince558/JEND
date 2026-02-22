@@ -499,6 +499,7 @@ func startCloudQRSender(filePath string, textContent string, isText bool, forceT
 		FilePath:    filePath,
 		FileName:    fileName,
 		FileSize:    fileSize,
+		FileHash:    fileHash,
 		IsText:      isText,
 		TextContent: textContent,
 		OnProgress: func(sent, total int64) {

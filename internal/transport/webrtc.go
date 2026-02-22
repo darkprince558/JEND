@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/darkprince558/jend/internal/signaling"
@@ -20,7 +21,9 @@ type WebRTCSender struct {
 	token      string
 	pc         *webrtc.PeerConnection
 	filePath   string
+	fileName   string
 	fileSize   int64
+	fileHash   string
 	isText     bool
 	textData   string
 	onProgress func(sent, total int64)
@@ -34,6 +37,7 @@ type WebRTCSenderConfig struct {
 	FilePath    string
 	FileName    string
 	FileSize    int64
+	FileHash    string
 	IsText      bool
 	TextContent string
 	OnProgress  func(sent, total int64)
@@ -46,7 +50,9 @@ func NewWebRTCSender(signaler *signaling.IoTClient, cfg WebRTCSenderConfig) *Web
 		signaler:   signaler,
 		token:      cfg.Token,
 		filePath:   cfg.FilePath,
+		fileName:   cfg.FileName,
 		fileSize:   cfg.FileSize,
+		fileHash:   cfg.FileHash,
 		isText:     cfg.IsText,
 		textData:   cfg.TextContent,
 		onProgress: cfg.OnProgress,
@@ -66,6 +72,16 @@ type iceMessage struct {
 	Candidate string `json:"candidate"`
 	SDPMid    string `json:"sdpMid"`
 	SDPMIndex uint16 `json:"sdpMLineIndex"`
+}
+
+// fileMetaMessage is sent to the browser first so it can display file info.
+type fileMetaMessage struct {
+	Type        string `json:"type"` // "meta"
+	Name        string `json:"name"`
+	Size        int64  `json:"size"`
+	Hash        string `json:"hash"`
+	IsText      bool   `json:"isText"`
+	TextPreview string `json:"textPreview,omitempty"`
 }
 
 // Run starts listening for browser connections and streaming files.
@@ -153,7 +169,8 @@ func (s *WebRTCSender) handleOffer(ctx context.Context, topic string, offer sdpM
 	// Handle DataChannel opened by the browser
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 		dc.OnOpen(func() {
-			go s.streamFile(dc)
+			// Send metadata first, then wait for "ready" before streaming
+			go s.sendMetaAndWait(dc)
 		})
 	})
 
@@ -190,9 +207,56 @@ func (s *WebRTCSender) handleOffer(ctx context.Context, topic string, offer sdpM
 	_ = s.signaler.Publish(topic, payload)
 }
 
-func (s *WebRTCSender) streamFile(dc *webrtc.DataChannel) {
-	defer dc.Close()
+// sendMetaAndWait sends file metadata over the DataChannel, then waits for
+// the browser to send "ready" before streaming the actual file data.
+func (s *WebRTCSender) sendMetaAndWait(dc *webrtc.DataChannel) {
+	// Build text preview for text content
+	textPreview := ""
+	if s.isText {
+		preview := s.textData
+		if len(preview) > 500 {
+			preview = preview[:500] + "..."
+		}
+		preview = strings.ReplaceAll(preview, "<", "&lt;")
+		preview = strings.ReplaceAll(preview, ">", "&gt;")
+		textPreview = preview
+	}
 
+	// Send metadata
+	meta := fileMetaMessage{
+		Type:        "meta",
+		Name:        s.fileName,
+		Size:        s.fileSize,
+		Hash:        s.fileHash,
+		IsText:      s.isText,
+		TextPreview: textPreview,
+	}
+	metaJSON, _ := json.Marshal(meta)
+	_ = dc.SendText(string(metaJSON))
+
+	// Wait for "ready" signal from the browser (user clicked Download)
+	ready := make(chan struct{}, 1)
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		if msg.IsString && string(msg.Data) == "ready" {
+			select {
+			case ready <- struct{}{}:
+			default:
+			}
+		}
+	})
+
+	select {
+	case <-ready:
+		// Browser is ready, start streaming
+		s.streamFile(dc)
+	case <-time.After(5 * time.Minute):
+		// Timeout if user never clicks download
+		_ = dc.SendText("ERROR:Transfer timed out — no download initiated")
+		dc.Close()
+	}
+}
+
+func (s *WebRTCSender) streamFile(dc *webrtc.DataChannel) {
 	const chunkSize = 16 * 1024 // 16KB chunks
 
 	if s.isText {
@@ -208,7 +272,7 @@ func (s *WebRTCSender) streamFile(dc *webrtc.DataChannel) {
 			if s.onProgress != nil {
 				s.onProgress(int64(end), int64(len(data)))
 			}
-			time.Sleep(1 * time.Millisecond) // Flow control
+			time.Sleep(1 * time.Millisecond)
 		}
 		_ = dc.SendText("EOF")
 		s.downloads++
@@ -237,7 +301,7 @@ func (s *WebRTCSender) streamFile(dc *webrtc.DataChannel) {
 			if s.onProgress != nil {
 				s.onProgress(sent, s.fileSize)
 			}
-			time.Sleep(1 * time.Millisecond) // Flow control
+			time.Sleep(1 * time.Millisecond)
 		}
 		if err == io.EOF {
 			break

@@ -3,146 +3,217 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JEND — Secure File Transfer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JEND · Download</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1692.0.min.js"></script>
     <style>
-        :root {
-            --bg: #16161A;
-            --card: #242629;
-            --border: rgba(127, 90, 240, 0.15);
-            --primary: #7F5AF0;
-            --accent: #00F0FF;
-            --text: #FFFFFE;
-            --subtext: #94A1B2;
-            --success: #2CB67D;
-            --error: #EF4444;
-        }
-
         * {
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
+            box-sizing: border-box
         }
 
         body {
+            background: #16161A;
+            color: #FFFFFE;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            padding: 20px
         }
 
         .container {
             max-width: 420px;
             width: 100%;
-            text-align: center;
+            text-align: center
         }
 
         .logo {
-            font-family: 'Courier New', monospace;
+            font-family: 'Courier New', Courier, monospace;
             font-size: 0.55rem;
             line-height: 1.15;
-            color: var(--primary);
+            color: #7F5AF0;
             margin-bottom: 16px;
             white-space: pre;
             text-align: left;
-            display: inline-block;
+            display: inline-block
         }
 
         .subtitle {
-            color: var(--subtext);
+            color: #94A1B2;
             font-size: 0.85rem;
-            margin-bottom: 28px;
+            margin-bottom: 28px
         }
 
         .card {
-            background: var(--card);
+            background: #242629;
             border-radius: 16px;
             padding: 28px 24px;
             margin-bottom: 24px;
-            border: 1px solid var(--border);
-        }
-
-        .status-icon {
-            font-size: 2.5rem;
-            margin-bottom: 12px;
-        }
-
-        .status-text {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .status-sub {
-            font-size: 0.8rem;
-            color: var(--subtext);
-        }
-
-        .file-info {
-            background: var(--bg);
-            border-radius: 10px;
-            padding: 14px;
-            margin-top: 16px;
-            text-align: left;
+            border: 1px solid rgba(127, 90, 240, 0.15)
         }
 
         .file-name {
+            font-size: 1.1rem;
             font-weight: 700;
-            font-size: 1rem;
+            color: #FFFFFE;
             word-break: break-all;
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06)
         }
 
-        .file-meta {
+        .meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            text-align: left;
+            margin-bottom: 20px
+        }
+
+        .meta-item {
+            background: #16161A;
+            border-radius: 10px;
+            padding: 12px 14px
+        }
+
+        .meta-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #94A1B2;
+            margin-bottom: 4px
+        }
+
+        .meta-value {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #FFFFFE
+        }
+
+        .meta-value.hash {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.75rem;
+            color: #94A1B2
+        }
+
+        .text-preview {
+            background: #16161A;
+            border-radius: 10px;
+            padding: 14px;
+            text-align: left;
+            margin-bottom: 16px;
+            font-family: 'SF Mono', Monaco, monospace;
             font-size: 0.8rem;
-            color: var(--subtext);
-            margin-top: 4px;
+            color: #94A1B2;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border: 1px solid rgba(0, 240, 255, 0.1)
+        }
+
+        .link-preview {
+            background: #16161A;
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+            margin-bottom: 16px;
+            border: 1px solid rgba(0, 240, 255, 0.15)
+        }
+
+        .link-preview a {
+            color: #00F0FF;
+            font-size: 0.9rem;
+            word-break: break-all;
+            text-decoration: none;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.3);
+            padding-bottom: 2px
+        }
+
+        .link-preview a:hover {
+            border-bottom-color: #00F0FF
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            color: #FFFFFE
+        }
+
+        .btn-download {
+            background: linear-gradient(135deg, #7F5AF0, #6B3FD4);
+            box-shadow: 0 4px 24px rgba(127, 90, 240, 0.35)
+        }
+
+        .btn-download:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 32px rgba(127, 90, 240, 0.5)
+        }
+
+        .btn-download:active {
+            transform: translateY(0)
+        }
+
+        .btn-download:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none
         }
 
         .progress-wrap {
-            margin-top: 16px;
             display: none;
+            margin-top: 16px
         }
 
         .progress-bar {
             height: 6px;
             background: #1a1a1e;
             border-radius: 3px;
-            overflow: hidden;
+            overflow: hidden
         }
 
         .progress-fill {
             height: 100%;
             width: 0%;
-            background: linear-gradient(90deg, var(--primary), var(--accent));
+            background: linear-gradient(90deg, #7F5AF0, #00F0FF);
             border-radius: 3px;
-            transition: width 0.2s ease;
+            transition: width 0.3s ease
         }
 
         .progress-text {
             font-size: 0.8rem;
-            color: var(--subtext);
-            margin-top: 6px;
+            color: #94A1B2;
+            margin-top: 8px
         }
 
-        .done-card {
+        .done {
             display: none;
             margin-top: 16px;
             padding: 16px;
             background: rgba(44, 182, 125, 0.08);
             border-radius: 10px;
-            border: 1px solid rgba(44, 182, 125, 0.2);
+            border: 1px solid rgba(44, 182, 125, 0.2)
         }
 
-        .done-card .msg {
-            color: var(--success);
+        .done .msg {
+            color: #2CB67D;
             font-weight: 700;
             font-size: 1rem;
+            letter-spacing: 0.02em
         }
 
         .error-card {
@@ -151,35 +222,56 @@
             padding: 16px;
             background: rgba(239, 68, 68, 0.08);
             border-radius: 10px;
-            border: 1px solid rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.2)
         }
 
         .error-card .msg {
-            color: var(--error);
+            color: #EF4444;
             font-weight: 600;
-            font-size: 0.9rem;
+            font-size: 0.9rem
+        }
+
+        .connecting-card {
+            text-align: center;
+            padding: 40px 20px
+        }
+
+        .connecting-card .spinner {
+            font-size: 1.5rem;
+            margin-bottom: 12px
+        }
+
+        .connecting-card .status {
+            font-weight: 600;
+            margin-bottom: 6px
+        }
+
+        .connecting-card .sub {
+            font-size: 0.8rem;
+            color: #94A1B2
         }
 
         .footer {
-            color: var(--subtext);
+            color: #94A1B2;
             font-size: 0.7rem;
             margin-top: 24px;
-            opacity: 0.6;
+            opacity: 0.6
         }
 
         .footer a {
-            color: var(--primary);
-            text-decoration: none;
+            color: #7F5AF0;
+            text-decoration: none
         }
 
         .badge {
             display: inline-block;
-            font-size: 0.65rem;
+            font-size: 0.6rem;
             padding: 3px 8px;
             border-radius: 4px;
-            background: rgba(127, 90, 240, 0.15);
-            color: var(--subtext);
-            margin-top: 8px;
+            background: rgba(0, 240, 255, 0.08);
+            color: #00F0FF;
+            margin-bottom: 12px;
+            letter-spacing: 0.05em
         }
 
         @keyframes pulse {
@@ -194,8 +286,22 @@
             }
         }
 
-        .connecting {
-            animation: pulse 1.5s ease infinite;
+        .pulse {
+            animation: pulse 1.5s ease infinite
+        }
+
+        @media(max-width:400px) {
+            .meta {
+                grid-template-columns: 1fr
+            }
+
+            .card {
+                padding: 20px 16px
+            }
+
+            .logo {
+                font-size: 0.45rem
+            }
         }
     </style>
 </head>
@@ -208,30 +314,54 @@
 ██   ██║██╔══╝  ██║╚██╗██║██║  ██║
 ╚█████╔╝███████╗██║ ╚████║██████╔╝
  ╚════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝ </pre>
-        <div class="subtitle">Secure, direct file transfer</div>
-        <div class="card">
-            <div class="status-icon connecting" id="statusIcon">🔗</div>
-            <div class="status-text" id="statusText">Connecting...</div>
-            <div class="status-sub" id="statusSub">Authenticating with AWS</div>
-            <div class="file-info" id="fileInfo" style="display:none">
-                <div class="file-name" id="fileName"></div>
-                <div class="file-meta" id="fileMeta"></div>
+        <div class="subtitle">Someone wants to send you a file</div>
+
+        <!-- Connecting state -->
+        <div class="card" id="connectingCard">
+            <div class="badge">CLOUD · WEBRTC</div>
+            <div class="connecting-card">
+                <div class="spinner pulse">🔗</div>
+                <div class="status" id="connectStatus">Connecting...</div>
+                <div class="sub" id="connectSub">Authenticating with signaling server</div>
             </div>
+        </div>
+
+        <!-- File info + Download state -->
+        <div class="card" id="fileCard" style="display:none">
+            <div class="badge">CLOUD · WEBRTC</div>
+            <div class="file-name" id="fileName"></div>
+            <div class="meta">
+                <div class="meta-item">
+                    <div class="meta-label">Size</div>
+                    <div class="meta-value" id="fileSize"></div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Type</div>
+                    <div class="meta-value" id="fileType"></div>
+                </div>
+                <div class="meta-item" style="grid-column:1/-1">
+                    <div class="meta-label">SHA-256</div>
+                    <div class="meta-value hash" id="fileHash"></div>
+                </div>
+            </div>
+            <div id="textPreviewWrap"></div>
+            <button class="btn btn-download" id="downloadBtn" onclick="startDownload()">Download</button>
             <div class="progress-wrap" id="progressWrap">
                 <div class="progress-bar">
                     <div class="progress-fill" id="progressFill"></div>
                 </div>
-                <div class="progress-text" id="progressText">0%</div>
+                <div class="progress-text" id="progressText">Starting download...</div>
             </div>
-            <div class="done-card" id="doneCard">
-                <div class="msg">✓ Transfer Complete</div>
+            <div class="done" id="doneMsg">
+                <div class="msg">Transfer Complete</div>
             </div>
             <div class="error-card" id="errorCard">
                 <div class="msg" id="errorMsg"></div>
             </div>
-            <div class="badge">WebRTC P2P · End-to-end encrypted</div>
         </div>
-        <div class="footer">Powered by <a href="https://github.com/darkprince558/jend">JEND</a></div>
+
+        <div class="footer">Powered by <a href="https://github.com/darkprince558/jend">JEND</a> · End-to-end encrypted
+            file transfer</div>
     </div>
     <script>
         (function () {
@@ -245,74 +375,45 @@
 
             var TOPIC = 'jend/signal/qr-' + token;
 
-            var $icon = document.getElementById('statusIcon');
-            var $status = document.getElementById('statusText');
-            var $sub = document.getElementById('statusSub');
-            var $progress = document.getElementById('progressWrap');
-            var $bar = document.getElementById('progressFill');
-            var $ptext = document.getElementById('progressText');
-            var $done = document.getElementById('doneCard');
-            var $error = document.getElementById('errorCard');
-            var $errMsg = document.getElementById('errorMsg');
-
-            var chunks = [];
-            var totalReceived = 0;
-            var fileName = 'download';
-            var fileSize = 0;
             var pc = null;
+            var dc = null;
             var mqttClient = null;
             var pendingCandidates = [];
+            var chunks = [];
+            var totalReceived = 0;
+            var fileMeta = null;
+            var downloadStarted = false;
 
             // ── Step 1: Get Cognito credentials ──
-            $status.textContent = 'Authenticating...';
-            $sub.textContent = 'Getting temporary credentials';
+            setConnectStatus('Authenticating...', 'Getting temporary credentials');
 
             AWS.config.region = REGION;
-            AWS.config.credentials = new AWS.CognitoIdentityCredentials({
-                IdentityPoolId: IDENTITY_POOL_ID
-            });
+            AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: IDENTITY_POOL_ID });
 
             AWS.config.credentials.get(function (err) {
                 if (err) { showError('Auth failed: ' + err.message); return; }
-                $sub.textContent = 'Connecting to signaling server';
+                setConnectStatus('Connecting...', 'Connecting to signaling server');
                 connectMQTT();
             });
 
             // ── Step 2: Connect to MQTT via SigV4 WebSocket ──
             function connectMQTT() {
                 var creds = AWS.config.credentials;
-                // Build signed WebSocket URL
-                var time = new Date();
-                var dateStamp = time.toISOString().replace(/[:\-]|\.\d{3}/g, '').substr(0, 8);
-                var amzdate = time.toISOString().replace(/[:\-]|\.\d{3}/g, '');
-
-                // Use AWS SDK's built-in signer for the WebSocket URL
                 var url = getSignedUrl(IOT_ENDPOINT, REGION, creds);
-
                 var clientId = 'jend-browser-' + Math.random().toString(36).substr(2, 8);
+
                 mqttClient = new Paho.Client(url, clientId);
-
                 mqttClient.onConnectionLost = function (resp) {
-                    if (resp.errorCode !== 0) {
-                        console.log('MQTT lost:', resp.errorMessage);
-                    }
+                    if (resp.errorCode !== 0) console.log('MQTT lost:', resp.errorMessage);
                 };
-
                 mqttClient.onMessageArrived = function (msg) {
-                    try {
-                        var data = JSON.parse(msg.payloadString);
-                        handleSignalingMessage(data);
-                    } catch (e) { console.log('Bad MQTT msg:', e); }
+                    try { handleSignalingMessage(JSON.parse(msg.payloadString)); } catch (e) { }
                 };
-
                 mqttClient.connect({
-                    useSSL: true,
-                    timeout: 10,
-                    mqttVersion: 4,
+                    useSSL: true, timeout: 10, mqttVersion: 4,
                     onSuccess: function () {
-                        $status.textContent = 'Connected!';
-                        $sub.textContent = 'Subscribing to signaling topic';
                         mqttClient.subscribe(TOPIC, { qos: 1 });
+                        setConnectStatus('Connected!', 'Establishing WebRTC peer connection');
                         startWebRTC();
                     },
                     onFailure: function (err) {
@@ -323,8 +424,7 @@
 
             // ── Step 3: WebRTC ──
             function startWebRTC() {
-                $status.textContent = 'Waiting for sender...';
-                $sub.textContent = 'Sending WebRTC offer';
+                setConnectStatus('Waiting for sender...', 'Sending WebRTC offer');
 
                 pc = new RTCPeerConnection({
                     iceServers: [
@@ -333,15 +433,24 @@
                     ]
                 });
 
-                // Create data channel
-                var dc = pc.createDataChannel('jend-file', { ordered: true });
+                dc = pc.createDataChannel('jend-file', { ordered: true });
                 dc.binaryType = 'arraybuffer';
-                setupDataChannel(dc);
 
-                // Also handle remote data channels
+                // Also handle remote data channels (CLI creates its own)
                 pc.ondatachannel = function (e) {
-                    e.channel.binaryType = 'arraybuffer';
-                    setupDataChannel(e.channel);
+                    var remoteDC = e.channel;
+                    remoteDC.binaryType = 'arraybuffer';
+                    remoteDC.onmessage = handleDCMessage;
+                    remoteDC.onopen = function () {
+                        setConnectStatus('Connected to sender!', 'Waiting for file info...');
+                    };
+                    // Use the remote DC for sending "ready" too
+                    dc = remoteDC;
+                };
+
+                dc.onmessage = handleDCMessage;
+                dc.onopen = function () {
+                    setConnectStatus('Connected to sender!', 'Waiting for file info...');
                 };
 
                 pc.onicecandidate = function (e) {
@@ -381,41 +490,112 @@
                 }
             }
 
-            function setupDataChannel(dc) {
-                dc.onopen = function () {
-                    $icon.textContent = '📥'; $icon.className = 'status-icon';
-                    $status.textContent = 'Receiving file...';
-                    $sub.textContent = 'Streaming via WebRTC DataChannel';
-                    $progress.style.display = 'block';
-                };
-                dc.onmessage = function (e) {
-                    if (typeof e.data === 'string') {
-                        if (e.data === 'EOF') { triggerSave(); return; }
-                        if (e.data.startsWith('ERROR:')) { showError(e.data.slice(6)); return; }
-                        try {
-                            var meta = JSON.parse(e.data);
-                            if (meta.name) fileName = meta.name;
-                            if (meta.size) fileSize = meta.size;
-                            document.getElementById('fileInfo').style.display = 'block';
-                            document.getElementById('fileName').textContent = meta.name || 'File';
-                            document.getElementById('fileMeta').textContent = formatBytes(meta.size || 0);
-                        } catch (ex) { }
+            // ── DataChannel message handler ──
+            function handleDCMessage(e) {
+                if (typeof e.data === 'string') {
+                    if (e.data === 'EOF') {
+                        triggerSave();
                         return;
                     }
-                    chunks.push(e.data);
-                    totalReceived += e.data.byteLength;
-                    if (fileSize > 0) {
-                        var pct = Math.min(100, (totalReceived / fileSize * 100)).toFixed(0);
-                        $bar.style.width = pct + '%';
-                        $ptext.textContent = pct + '% — ' + formatBytes(totalReceived);
-                    } else {
-                        $ptext.textContent = formatBytes(totalReceived) + ' received';
+                    if (e.data.startsWith('ERROR:')) {
+                        showError(e.data.slice(6));
+                        return;
                     }
-                };
-                dc.onerror = function (e) { showError('DataChannel error'); };
+                    // Try to parse as metadata
+                    try {
+                        var msg = JSON.parse(e.data);
+                        if (msg.type === 'meta') {
+                            fileMeta = msg;
+                            showFileInfo(msg);
+                            return;
+                        }
+                    } catch (ex) { }
+                    return;
+                }
+
+                // Binary data (file chunks) — only process after download started
+                if (!downloadStarted) return;
+                chunks.push(e.data);
+                totalReceived += e.data.byteLength;
+                if (fileMeta && fileMeta.size > 0) {
+                    var pct = Math.min(100, (totalReceived / fileMeta.size * 100));
+                    document.getElementById('progressFill').style.width = pct.toFixed(0) + '%';
+                    document.getElementById('progressText').textContent = pct.toFixed(0) + '% downloading...';
+                } else {
+                    document.getElementById('progressText').textContent = formatBytes(totalReceived) + ' received';
+                }
+            }
+
+            // ── Show file info card (matching local QR design) ──
+            function showFileInfo(meta) {
+                document.getElementById('connectingCard').style.display = 'none';
+                document.getElementById('fileCard').style.display = 'block';
+
+                document.getElementById('fileName').textContent = meta.name || 'File';
+                document.getElementById('fileSize').textContent = formatBytes(meta.size || 0);
+                document.getElementById('fileType').textContent = getFileType(meta.name, meta.isText);
+
+                var hashStr = meta.hash || '';
+                if (hashStr.length > 16) hashStr = hashStr.substr(0, 16) + '...';
+                document.getElementById('fileHash').textContent = hashStr;
+
+                // Text preview
+                if (meta.isText && meta.textPreview) {
+                    var wrap = document.getElementById('textPreviewWrap');
+                    var trimmed = meta.textPreview.trim();
+                    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+                        wrap.innerHTML = '<div class="link-preview"><a href="' + trimmed + '" target="_blank" rel="noopener">' + trimmed + '</a></div>';
+                    } else {
+                        wrap.innerHTML = '<div class="text-preview">' + meta.textPreview + '</div>';
+                    }
+                }
+            }
+
+            // ── Download button click ──
+            window.startDownload = function () {
+                downloadStarted = true;
+                var btn = document.getElementById('downloadBtn');
+                var prog = document.getElementById('progressWrap');
+                btn.style.display = 'none';
+                prog.style.display = 'block';
+
+                // Send "ready" to the CLI via DataChannel
+                if (dc && dc.readyState === 'open') {
+                    dc.send('ready');
+                }
+            };
+
+            // ── Trigger file save ──
+            function triggerSave() {
+                var blob = new Blob(chunks);
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = (fileMeta && fileMeta.name) ? fileMeta.name : 'download';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+
+                document.getElementById('progressWrap').style.display = 'none';
+                document.getElementById('doneMsg').style.display = 'block';
+                document.getElementById('progressFill').style.width = '100%';
+            }
+
+            function showError(msg) {
+                document.getElementById('connectingCard').style.display = 'none';
+                var fc = document.getElementById('fileCard');
+                fc.style.display = 'block';
+                document.getElementById('errorCard').style.display = 'block';
+                document.getElementById('errorMsg').textContent = msg;
+                var btn = document.getElementById('downloadBtn');
+                if (btn) btn.style.display = 'none';
             }
 
             // ── Helpers ──
+            function setConnectStatus(status, sub) {
+                document.getElementById('connectStatus').textContent = status;
+                document.getElementById('connectSub').textContent = sub;
+            }
+
             function publishMQTT(obj) {
                 var msg = new Paho.Message(JSON.stringify(obj));
                 msg.destinationName = TOPIC;
@@ -423,25 +603,20 @@
                 mqttClient.send(msg);
             }
 
-            function triggerSave() {
-                var blob = new Blob(chunks);
-                var a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = fileName;
-                document.body.appendChild(a); a.click(); a.remove();
-                $progress.style.display = 'none';
-                $done.style.display = 'block';
-                $icon.textContent = '✅';
-                $status.textContent = 'Download Complete';
-                $sub.textContent = formatBytes(totalReceived) + ' received';
-            }
-
-            function showError(msg) {
-                $icon.textContent = '❌'; $icon.className = 'status-icon';
-                $status.textContent = 'Error';
-                $sub.textContent = '';
-                $errMsg.textContent = msg;
-                $error.style.display = 'block';
+            function getFileType(name, isText) {
+                if (isText) return 'Text Snippet';
+                if (!name) return 'File';
+                var ext = name.split('.').pop().toLowerCase();
+                var types = {
+                    'zip': 'ZIP Archive', 'tar': 'TAR Archive', 'gz': 'GZ Archive', 'rar': 'RAR Archive', '7z': '7Z Archive',
+                    'jpg': 'Image', 'jpeg': 'Image', 'png': 'Image', 'gif': 'Image', 'webp': 'Image', 'svg': 'Image',
+                    'mp4': 'Video', 'mov': 'Video', 'avi': 'Video', 'mkv': 'Video',
+                    'mp3': 'Audio', 'wav': 'Audio', 'flac': 'Audio', 'aac': 'Audio',
+                    'pdf': 'PDF Document', 'doc': 'Word Document', 'docx': 'Word Document',
+                    'ppt': 'Presentation', 'pptx': 'Presentation',
+                    'xls': 'Spreadsheet', 'xlsx': 'Spreadsheet', 'csv': 'Spreadsheet'
+                };
+                return types[ext] || (ext + ' file');
             }
 
             function formatBytes(b) {
@@ -455,57 +630,32 @@
             function getSignedUrl(host, region, creds) {
                 var datetime = (new Date()).toISOString().replace(/[:\-]|\.\d{3}/g, '');
                 var date = datetime.substr(0, 8);
-
-                var method = 'GET';
-                var protocol = 'wss';
-                var uri = '/mqtt';
                 var service = 'iotdevicegateway';
                 var algorithm = 'AWS4-HMAC-SHA256';
-
                 var credScope = date + '/' + region + '/' + service + '/aws4_request';
-                var canonicalQuerystring = 'X-Amz-Algorithm=' + algorithm;
-                canonicalQuerystring += '&X-Amz-Credential=' + encodeURIComponent(creds.accessKeyId + '/' + credScope);
-                canonicalQuerystring += '&X-Amz-Date=' + datetime;
-                canonicalQuerystring += '&X-Amz-SignedHeaders=host';
-
+                var qs = 'X-Amz-Algorithm=' + algorithm;
+                qs += '&X-Amz-Credential=' + encodeURIComponent(creds.accessKeyId + '/' + credScope);
+                qs += '&X-Amz-Date=' + datetime;
+                qs += '&X-Amz-SignedHeaders=host';
                 var canonicalHeaders = 'host:' + host + '\n';
-                var canonicalRequest = method + '\n' + uri + '\n' + canonicalQuerystring + '\n' + canonicalHeaders + '\nhost\n' + sha256('');
-
+                var canonicalRequest = 'GET\n/mqtt\n' + qs + '\n' + canonicalHeaders + '\nhost\n' + sha256('');
                 var stringToSign = algorithm + '\n' + datetime + '\n' + credScope + '\n' + sha256(canonicalRequest);
                 var signingKey = getSignatureKey(creds.secretAccessKey, date, region, service);
                 var signature = hmacHex(signingKey, stringToSign);
-
-                canonicalQuerystring += '&X-Amz-Signature=' + signature;
-                if (creds.sessionToken) {
-                    canonicalQuerystring += '&X-Amz-Security-Token=' + encodeURIComponent(creds.sessionToken);
-                }
-
-                return protocol + '://' + host + uri + '?' + canonicalQuerystring;
+                qs += '&X-Amz-Signature=' + signature;
+                if (creds.sessionToken) qs += '&X-Amz-Security-Token=' + encodeURIComponent(creds.sessionToken);
+                return 'wss://' + host + '/mqtt?' + qs;
             }
-
-            function sha256(msg) {
-                return AWS.util.crypto.sha256(msg, 'hex');
-            }
-
-            function hmac(key, msg) {
-                return AWS.util.crypto.hmac(key, msg, 'buffer');
-            }
-
-            function hmacHex(key, msg) {
-                return AWS.util.crypto.hmac(key, msg, 'hex');
-            }
-
-            function getSignatureKey(key, dateStamp, region, service) {
-                var kDate = hmac('AWS4' + key, dateStamp);
-                var kRegion = hmac(kDate, region);
-                var kService = hmac(kRegion, service);
-                var kSigning = hmac(kService, 'aws4_request');
-                return kSigning;
+            function sha256(m) { return AWS.util.crypto.sha256(m, 'hex'); }
+            function hmac(k, m) { return AWS.util.crypto.hmac(k, m, 'buffer'); }
+            function hmacHex(k, m) { return AWS.util.crypto.hmac(k, m, 'hex'); }
+            function getSignatureKey(key, d, r, s) {
+                return hmac(hmac(hmac(hmac('AWS4' + key, d), r), s), 'aws4_request');
             }
 
             // Timeout
             setTimeout(function () {
-                if ($done.style.display !== 'block' && $error.style.display !== 'block') {
+                if (!fileMeta && document.getElementById('connectingCard').style.display !== 'none') {
                     showError('Connection timed out. The sender may no longer be available.');
                 }
             }, 60000);
