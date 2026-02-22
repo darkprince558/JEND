@@ -71,7 +71,7 @@ type iceMessage struct {
 // Run starts listening for browser connections and streaming files.
 // It blocks until ctx is cancelled.
 func (s *WebRTCSender) Run(ctx context.Context) error {
-	topic := fmt.Sprintf("jend/qr/%s", s.token)
+	topic := fmt.Sprintf("jend/signal/qr-%s", s.token)
 
 	// Subscribe to signaling topic for browser SDP offers
 	err := s.signaler.Subscribe(topic, func(client mqtt.Client, msg mqtt.Message) {
