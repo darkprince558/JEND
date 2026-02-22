@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JEND — Secure File Transfer</title>
+<style>
+  :root {
+    --bg: #0D0D0F;
+    --card: #1A1A2E;
+    --border: #2A2A3E;
+    --primary: #7C3AED;
+    --primary-hover: #9B59F0;
+    --text: #E8E8ED;
+    --subtext: #9CA3AF;
+    --success: #10B981;
+    --error: #EF4444;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    max-width: 420px;
+    width: 100%;
+    text-align: center;
+  }
+  .logo {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: var(--primary);
+    margin-bottom: 0.25rem;
+  }
+  .tagline {
+    font-size: 0.85rem;
+    color: var(--subtext);
+    margin-bottom: 1.5rem;
+  }
+  .file-info {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    text-align: left;
+  }
+  .file-name {
+    font-weight: 700;
+    font-size: 1.1rem;
+    word-break: break-all;
+    margin-bottom: 0.5rem;
+  }
+  .file-meta {
+    font-size: 0.8rem;
+    color: var(--subtext);
+    line-height: 1.6;
+  }
+  .file-meta span { color: var(--text); }
+  .progress-wrap {
+    margin-bottom: 1.25rem;
+    display: none;
+  }
+  .progress-bar-bg {
+    width: 100%;
+    height: 8px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.4rem;
+  }
+  .progress-bar {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), var(--primary-hover));
+    border-radius: 4px;
+    transition: width 0.15s;
+  }
+  .progress-text {
+    font-size: 0.8rem;
+    color: var(--subtext);
+  }
+  .btn {
+    display: inline-block;
+    width: 100%;
+    padding: 0.85rem;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+    color: white;
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(124,58,237,0.4); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+  .status {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: var(--subtext);
+    min-height: 1.2rem;
+  }
+  .status.error { color: var(--error); }
+  .status.success { color: var(--success); }
+  .method-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: var(--border);
+    color: var(--subtext);
+    margin-top: 0.5rem;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">JEND</div>
+  <div class="tagline">Secure, direct file transfer</div>
+
+  <div class="file-info" id="file-info">
+    <div class="file-name" id="file-name">Connecting...</div>
+    <div class="file-meta" id="file-meta"></div>
+  </div>
+
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-bar-bg"><div class="progress-bar" id="progress-bar"></div></div>
+    <div class="progress-text" id="progress-text">0%</div>
+  </div>
+
+  <button class="btn btn-primary" id="download-btn" disabled>Download</button>
+  <div class="status" id="status">Fetching file info…</div>
+  <div class="method-badge" id="method-badge" style="display:none"></div>
+</div>
+
+<script>
+(function() {
+  // Extract token from URL path: /d/<token>
+  const pathParts = location.pathname.split('/');
+  const token = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2];
+  const base = location.pathname.replace(/\/$/, '');
+
+  const $name     = document.getElementById('file-name');
+  const $meta     = document.getElementById('file-meta');
+  const $btn      = document.getElementById('download-btn');
+  const $status   = document.getElementById('status');
+  const $progress = document.getElementById('progress-wrap');
+  const $bar      = document.getElementById('progress-bar');
+  const $ptext    = document.getElementById('progress-text');
+  const $badge    = document.getElementById('method-badge');
+
+  let fileInfo = null;
+
+  // ── Step 1: Fetch file info from the local server ──
+  fetch(base + '/info')
+    .then(r => r.json())
+    .then(info => {
+      fileInfo = info;
+      $name.textContent = info.name || 'File';
+      let metaHTML = '';
+      if (info.size) metaHTML += 'Size: <span>' + formatBytes(info.size) + '</span><br>';
+      if (info.type) metaHTML += 'Type: <span>' + info.type + '</span><br>';
+      if (info.hash) metaHTML += 'SHA-256: <span style="font-family:monospace;font-size:0.7rem">' + info.hash + '</span>';
+      $meta.innerHTML = metaHTML;
+      $btn.disabled = false;
+      $status.textContent = 'Ready to download';
+    })
+    .catch(() => {
+      $status.textContent = 'Failed to reach sender';
+      $status.className = 'status error';
+    });
+
+  // ── Step 2: Download button handler ──
+  $btn.addEventListener('click', function() {
+    $btn.disabled = true;
+    $status.textContent = 'Trying direct download…';
+
+    // Try WebRTC first if available, fallback to direct HTTP
+    if (window.RTCPeerConnection) {
+      tryWebRTC();
+    } else {
+      directDownload();
+    }
+  });
+
+  // ── Method A: Direct HTTP download (original behavior) ──
+  function directDownload() {
+    showBadge('HTTP Direct');
+    $progress.style.display = 'block';
+    $status.textContent = 'Downloading via HTTP…';
+
+    fetch(base + '/download')
+      .then(response => {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const total = parseInt(response.headers.get('content-length')) || 0;
+        const reader = response.body.getReader();
+        const chunks = [];
+        let received = 0;
+
+        function pump() {
+          return reader.read().then(({ done, value }) => {
+            if (done) return;
+            chunks.push(value);
+            received += value.length;
+            if (total > 0) updateProgress(received, total);
+            return pump();
+          });
+        }
+
+        return pump().then(() => {
+          const blob = new Blob(chunks);
+          triggerSave(blob, fileInfo.name);
+        });
+      })
+      .catch(err => {
+        $status.textContent = 'HTTP failed: ' + err.message;
+        $status.className = 'status error';
+        $btn.disabled = false;
+      });
+  }
+
+  // ── Method B: WebRTC DataChannel transfer ──
+  function tryWebRTC() {
+    showBadge('WebRTC P2P');
+    $status.textContent = 'Establishing WebRTC connection…';
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' }
+      ]
+    });
+
+    const dc = pc.createDataChannel('jend-file', { ordered: true });
+    dc.binaryType = 'arraybuffer';
+
+    const chunks = [];
+    let received = 0;
+    const total = fileInfo ? fileInfo.size : 0;
+
+    dc.onopen = function() {
+      $progress.style.display = 'block';
+      $status.textContent = 'Receiving file via WebRTC…';
+    };
+
+    dc.onmessage = function(event) {
+      if (typeof event.data === 'string') {
+        // Control message
+        if (event.data === 'EOF') {
+          const blob = new Blob(chunks);
+          triggerSave(blob, fileInfo.name);
+        }
+        return;
+      }
+      chunks.push(event.data);
+      received += event.data.byteLength;
+      if (total > 0) updateProgress(received, total);
+    };
+
+    dc.onerror = function() {
+      $status.textContent = 'WebRTC failed, trying HTTP…';
+      pc.close();
+      directDownload();
+    };
+
+    // Gather ICE candidates
+    const candidates = [];
+    pc.onicecandidate = function(e) {
+      if (e.candidate) {
+        candidates.push(e.candidate);
+      }
+    };
+
+    pc.onicegatheringstatechange = function() {
+      if (pc.iceGatheringState === 'complete') {
+        // Send all candidates to the server
+        fetch(base + '/rtc/candidates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(candidates)
+        }).catch(() => {});
+      }
+    };
+
+    // Create offer
+    pc.createOffer()
+      .then(offer => pc.setLocalDescription(offer))
+      .then(() => {
+        return fetch(base + '/rtc/offer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pc.localDescription)
+        });
+      })
+      .then(r => r.json())
+      .then(answer => {
+        pc.setRemoteDescription(answer);
+        // Fetch server-side ICE candidates
+        return fetch(base + '/rtc/server-candidates');
+      })
+      .then(r => r.json())
+      .then(serverCandidates => {
+        serverCandidates.forEach(c => {
+          pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+        });
+      })
+      .catch(() => {
+        $status.textContent = 'WebRTC setup failed, trying HTTP…';
+        pc.close();
+        directDownload();
+      });
+
+    // Timeout: if DataChannel doesn't open in 8s, fall back to HTTP
+    setTimeout(() => {
+      if (dc.readyState !== 'open') {
+        $status.textContent = 'WebRTC timeout, trying HTTP…';
+        pc.close();
+        directDownload();
+      }
+    }, 8000);
+  }
+
+  // ── Helpers ──
+  function updateProgress(received, total) {
+    const pct = Math.round((received / total) * 100);
+    $bar.style.width = pct + '%';
+    $ptext.textContent = pct + '% · ' + formatBytes(received) + ' / ' + formatBytes(total);
+  }
+
+  function triggerSave(blob, filename) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename || 'download';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    $bar.style.width = '100%';
+    $ptext.textContent = '100%';
+    $status.textContent = 'Download complete ✓';
+    $status.className = 'status success';
+  }
+
+  function showBadge(text) {
+    $badge.textContent = text;
+    $badge.style.display = 'inline-block';
+  }
+
+  function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+    return (b / 1073741824).toFixed(2) + ' GB';
+  }
+})();
+</script>
+</body>
+</html>
