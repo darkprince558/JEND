@@ -57,13 +57,27 @@ Transfers over 100MB fail often.
 
 ## Installation
 
-### The Simple Way (Homebrew)
+### Windows (Winget) — Recommended
 
-On macOS or Linux:
+```powershell
+winget install jend
+```
+
+### macOS / Linux (Homebrew)
 
 ```bash
 brew install darkprince558/tap/jend
 ```
+
+### Arch Linux (AUR)
+
+```bash
+yay -S jend-bin
+```
+
+### Debian / Ubuntu / Fedora / Alpine
+
+Download the `.deb`, `.rpm`, or `.apk` files directly from the [GitHub Releases](https://github.com/darkprince558/JEND/releases) page.
 
 ### Windows (Scoop)
 
@@ -146,6 +160,7 @@ jend send --qr --qr-mode cloud report.pdf
 ```
 
 When Cloud Mode is active, JEND prints both a QR code and a **6-character transfer code** (e.g. `Af38HJ`) below it. The receiver can either:
+
 * Scan the QR code on their phone, **or**
 * Open `d36yyit6n9gsha.cloudfront.net/qr` in any browser and type the code manually
 
