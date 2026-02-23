@@ -87,10 +87,6 @@ nfpms:
       - apk
     bindir: /usr/bin
     section: utils
-    contents:
-      - src: ./cmd/jend/jend
-        dst: /usr/bin/jend
-        type: file
 
 # Winget Configuration (Windows)
 winget:
