@@ -43,7 +43,8 @@ Direct P2P connectivity is blocked by most NATs, and strict enterprise or school
 * **Discovery**: JEND first attempts local mDNS discovery (IPv4/IPv6). On networks where multicast is blocked, it falls back to cloud registry matching: two devices with the same public IP are recognized as likely co-located and given each other's local address.
 * **Hole Punching**: If local discovery fails, it uses **ICE** (Interactive Connectivity Establishment) to punch holes through NATs.
 * **Configurable Relays**: For strict networks, I implemented a **"Bring Your Own Relay"** system. You can point JEND at any standard TURN server (e.g., a free Oracle Cloud instance) to route traffic when P2P is impossible. Secure, private routing without vendor lock-in.
-* **QR Mode (Browser Transfer)**: As a last resort on networks that block everything, `--qr` mode bypasses the QUIC transport entirely and serves the file over a standard HTTP server on port 8888. The receiver opens the URL in any browser—no JEND installation required. Because it runs over plain TCP, it works on networks that block all UDP traffic.
+* **QR Mode — Local**: As a last resort on networks that block everything, `--qr` mode bypasses the QUIC transport entirely and serves the file over a standard HTTP server on port 8888. The receiver opens the URL in any browser—no JEND installation required. Because it runs over plain TCP, it works on networks that block all UDP traffic.
+* **QR Mode — Cloud (WebRTC)**: For situations where even the local HTTP server is unreachable (different networks, cellular), `--qr --qr-mode cloud` uses **WebRTC DataChannels** for a direct, end-to-end encrypted transfer between your terminal and any browser in the world. Signaling is handled via AWS IoT Core; the actual file data travels peer-to-peer and never touches a server.
 
 ### 4. Reliability: State-Machine Resumption
 
@@ -124,23 +125,55 @@ This is the fastest way to share command output or filter results with someone o
 
 ### QR Code Mode
 
-The easiest way to share a file with someone on the same network, especially on enterprise or school Wi-Fi where peer-to-peer connections are blocked. Run `--qr` and a QR code appears in your terminal. Anyone can scan it with their phone or laptop camera—the file opens in their browser, no JEND installation needed.
+The easiest way to share a file with someone who doesn't have JEND installed, or on restrictive networks like enterprise or school Wi-Fi.
+
+#### Local Mode (default)
+
+Runs a local HTTP server and displays a QR code in the terminal. The receiver scans it and the file downloads directly in their browser.
 
 ```bash
 jend send --qr report.pdf
 ```
 
-The browser download page shows the file name, size, type, and SHA-256 hash before the download starts, so the receiver can confirm what they are getting. After the download completes, the server shuts itself down automatically.
+The browser download page shows the file name, size, type, and SHA-256 hash before the download starts. Supports multiple concurrent downloads.
 
-This also works for text snippets:
+#### Cloud Mode (WebRTC)
+
+Works across any network—even when the sender and receiver are on different WiFi networks or different continents. Instead of a local server, JEND establishes a **WebRTC DataChannel** directly into the receiver's browser. The transfer is end-to-end encrypted and the file data never touches a server.
 
 ```bash
-jend send --qr --text "https://internal-link.corp/doc"
+jend send --qr --qr-mode cloud report.pdf
 ```
+
+When Cloud Mode is active, JEND prints both a QR code and a **6-character transfer code** (e.g. `Af38HJ`) below it. The receiver can either:
+* Scan the QR code on their phone, **or**
+* Open `d36yyit6n9gsha.cloudfront.net/qr` in any browser and type the code manually
+
+Multiple people can connect and download simultaneously.
+
+#### QR Options
+
+Both modes support download limits and time-based expiration:
+
+```bash
+# Allow only 3 downloads, expire after 30 minutes
+jend send --qr --qr-limit 3 --qr-expire 30m report.pdf
+
+# Interactive prompt to configure options
+jend send --qr report.pdf
+```
+
+When `--qr` is used without explicit flags, an interactive prompt appears to let you pick mode, download limit, and expiration.
+
+| Flag | Description | Default |
+| :--- | :--- | :--- |
+| `--qr-mode` | `local` or `cloud` | interactive |
+| `--qr-limit N` | Max number of downloads allowed (0 = unlimited) | `0` |
+| `--qr-expire 15m` | Auto-expire the QR after a duration | `0` (never) |
 
 ### Persistent Configuration
 
-Dont want to type flags every time? Save your preferences.
+Don't want to type flags every time? Save your preferences.
 
 ```bash
 # Point JEND to your private relay
@@ -178,7 +211,10 @@ Usage: `jend send [file] [flags]`
 | **Send Text** | `--text "msg"` | Send a text string directly without creating a file. Useful for sharing URLs or passwords. |
 | **Multiple Files** | `file1 file2 ...` | Pass multiple files or directories as arguments. JEND bundles them into a zip automatically. |
 | **Pipe from STDIN** | `cat file \| jend send` | Pipe any data into JEND and it will be sent as a text transfer. No flags needed. |
-| **QR Mode** | `--qr` | Start a local HTTP server and display a QR code. The receiver opens the URL in any browser. No JEND install required on their end. |
+| **QR Mode** | `--qr` | Display a QR code to share a file via browser. See [QR Code Mode](#qr-code-mode) for details. |
+| **QR Mode** | `--qr-mode local\|cloud` | Choose between the local HTTP server or the WebRTC cloud mode. |
+| **QR Limit** | `--qr-limit N` | Cap the number of downloads allowed before the server shuts down. |
+| **QR Expiry** | `--qr-expire 15m` | Auto-shut down the QR server after a duration. |
 | **Incognito** | `--incognito` | Disables history logging and clipboard copying. Use this for sensitive data you don't want tracked locally. |
 | **Compression** | `--tar` / `--zip` | Manually force a compression format. JEND usually detects this automatically for directories. |
 | **Automation** | `--headless` | Runs without the interactive UI (TUI). Outputs machine-readable logs to stdout for scripts. |
@@ -194,8 +230,14 @@ jend send notes.txt schema.sql diagram.png
 # Pipe grep output directly to a colleague
 grep -r "BUG" ./src | jend send
 
-# Share a file with someone who doesn't have JEND installed (school/work WiFi)
+# Share with someone on the same WiFi (browser, no JEND needed)
 jend send --qr presentation.pptx
+
+# Share with someone anywhere in the world (different network, no JEND needed)
+jend send --qr --qr-mode cloud presentation.pptx
+
+# Limit to 1 download, expire after 15 minutes
+jend send --qr --qr-limit 1 --qr-expire 15m secret.pdf
 
 # Send a sensitive string without logging it
 jend send --incognito --text "MySecretPassword"
