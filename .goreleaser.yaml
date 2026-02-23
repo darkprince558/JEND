@@ -103,9 +103,6 @@ winget:
     repository:
       owner: darkprince558
       name: winget-pkgs
-      push_to:
-        owner: darkprince558
-        name: winget-pkgs
     commit_author:
       name: "goreleaserbot"
       email: "bot@goreleaser.com"
