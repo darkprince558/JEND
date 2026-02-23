@@ -1,0 +1,53 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gofmt
+
+  disable:
+    - godox       # TODO/FIXME comments are fine
+    - lll         # long lines are fine in this codebase
+    - funlen      # function length not enforced
+    - gocognit    # complexity not enforced
+    - cyclop      # same
+    - wsl         # whitespace style not enforced
+    - nlreturn
+    - revive
+    - exhaustruct
+    - depguard
+    - gci
+    - godot
+
+linters-settings:
+  errcheck:
+    # Ignore intentional blank-identifier error suppressions (our pattern: _ = f())
+    check-blank: false
+
+  govet:
+    enable-all: false
+    enable:
+      - shadow
+      - printf
+
+issues:
+  exclude-rules:
+    # Ignore errcheck on deferred close/remove calls (common safe pattern)
+    - linters: [errcheck]
+      text: "defer"
+
+    # Ignore errcheck on DataChannel send helpers in webrtc.go (best-effort sends)
+    - path: internal/transport/webrtc\.go
+      linters: [errcheck]
+
+    # Ignore shadowing in test files
+    - path: "_test\\.go"
+      linters: [govet]
+      text: "shadow"
+
+  max-issues-per-linter: 50
+  max-same-issues: 5
