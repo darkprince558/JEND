@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/darkprince558/jend/internal/config"
 	"github.com/darkprince558/jend/internal/ui"
+	"github.com/darkprince558/jend/internal/update"
 	"github.com/spf13/cobra"
 )
 
@@ -33,6 +34,9 @@ on the same network or over the internet using a simple code.`,
 	// PersistentPreRun runs before every command and its subcommands.
 	// It resolves the theme: --theme flag > config file > auto-detect.
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Launch update checker in the background (debounced to 24h).
+		update.CheckBackgroundAsync()
+
 		themeName := themeFlag // default "auto"
 
 		// If flag is still "auto", check config file for a saved theme
@@ -49,6 +53,13 @@ on the same network or over the internet using a simple code.`,
 		}
 
 		ui.InitTheme(themeName, overrides)
+	},
+	// PersistentPostRun runs after every command completes.
+	// It prints an update notice if one is cached from a previous background check.
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		if notice := update.GetUpdateNotice(version); notice != "" {
+			fmt.Print(notice)
+		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		banner := ui.RenderBannerWithTagline()

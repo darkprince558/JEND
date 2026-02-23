@@ -15,6 +15,10 @@ type Config struct {
 	// Theme settings
 	Theme       string            `json:"theme,omitempty"`        // Named theme: dark, light, dracula, nord, catppuccin, solarized
 	ThemeColors map[string]string `json:"theme_colors,omitempty"` // Per-color hex overrides (e.g. "primary": "#FF6B6B")
+
+	// Update checker state
+	LastUpdateCheck int64  `json:"last_update_check,omitempty"` // Unix timestamp
+	LatestVersion   string `json:"latest_version,omitempty"`    // e.g. "v2.3.0"
 }
 
 func GetConfigPath() (string, error) {
