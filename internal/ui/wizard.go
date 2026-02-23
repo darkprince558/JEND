@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
@@ -30,6 +31,9 @@ type WizardResult struct {
 	IsText      bool
 	UseS3       bool
 	UseQR       bool
+	QRMode      string // "local" or "cloud"
+	QRLimit     int
+	QRExpire    time.Duration
 	ForceZip    bool
 	ForceTar    bool
 	Incognito   bool
@@ -79,11 +83,17 @@ type SendWizardModel struct {
 	optCursor     int
 	confirmCursor int
 	modeChoice    int // 0 = Direct, 1 = S3, 2 = QR
-	forceZip      bool
-	forceTar      bool
-	incognito     bool
-	noClipboard   bool
-	noHistory     bool
+
+	// Step 2 sub: QR Options
+	qrModeIdx     int
+	qrDownloadIdx int
+	qrExpireIdx   int
+
+	forceZip    bool
+	forceTar    bool
+	incognito   bool
+	noClipboard bool
+	noHistory   bool
 
 	// Terminal size
 	width  int
@@ -355,47 +365,93 @@ func (m SendWizardModel) updateStepOptions(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			m.modeChoice = 1
 		case 2: // QR
 			m.modeChoice = 2
-		case 3: // ZIP toggle
-			m.forceZip = !m.forceZip
-			if m.forceZip {
-				m.forceTar = false
+		case 3:
+			if m.modeChoice == 2 {
+				// QR Mode (Local vs Cloud)
+				m.qrModeIdx = (m.qrModeIdx + 1) % 2
+			} else {
+				// ZIP toggle
+				m.forceZip = !m.forceZip
+				if m.forceZip {
+					m.forceTar = false
+				}
 			}
-		case 4: // TAR toggle
-			m.forceTar = !m.forceTar
-			if m.forceTar {
-				m.forceZip = false
+		case 4:
+			if m.modeChoice == 2 {
+				// QR Download Limit
+				m.qrDownloadIdx = (m.qrDownloadIdx + 1) % len(downloadChoices)
+			} else {
+				// TAR toggle
+				m.forceTar = !m.forceTar
+				if m.forceTar {
+					m.forceZip = false
+				}
 			}
-		case 5: // Incognito toggle
-			m.incognito = !m.incognito
-			if m.incognito {
-				m.noClipboard = false
-				m.noHistory = false
+		case 5:
+			if m.modeChoice == 2 {
+				// QR Expire
+				m.qrExpireIdx = (m.qrExpireIdx + 1) % len(expireChoices)
+			} else {
+				// Incognito toggle
+				m.incognito = !m.incognito
+				if m.incognito {
+					m.noClipboard = false
+					m.noHistory = false
+				}
 			}
-		case 6: // No Clipboard toggle
-			m.noClipboard = !m.noClipboard
-			if m.noClipboard {
-				m.incognito = false
+		case 6:
+			if m.modeChoice == 2 {
+				// ZIP toggle for QR
+				m.forceZip = !m.forceZip
+				if m.forceZip {
+					m.forceTar = false
+				}
+			} else {
+				// No Clipboard toggle
+				m.noClipboard = !m.noClipboard
+				if m.noClipboard {
+					m.incognito = false
+				}
+				if m.noClipboard && m.noHistory {
+					m.incognito = true
+					m.noClipboard = false
+					m.noHistory = false
+				}
 			}
-			if m.noClipboard && m.noHistory {
-				m.incognito = true
-				m.noClipboard = false
-				m.noHistory = false
-			}
-		case 7: // No History toggle
-			m.noHistory = !m.noHistory
-			if m.noHistory {
-				m.incognito = false
-			}
-			if m.noClipboard && m.noHistory {
-				m.incognito = true
-				m.noClipboard = false
-				m.noHistory = false
+		case 7:
+			if m.modeChoice == 2 {
+				// TAR toggle for QR
+				m.forceTar = !m.forceTar
+				if m.forceTar {
+					m.forceZip = false
+				}
+			} else {
+				// No History toggle
+				m.noHistory = !m.noHistory
+				if m.noHistory {
+					m.incognito = false
+				}
+				if m.noClipboard && m.noHistory {
+					m.incognito = true
+					m.noClipboard = false
+					m.noHistory = false
+				}
 			}
 		}
 	case tea.KeyTab, tea.KeyRight:
 		// Tab advances to confirm step
 		m.result.UseS3 = (m.modeChoice == 1)
 		m.result.UseQR = (m.modeChoice == 2)
+		if m.result.UseQR {
+			if m.qrModeIdx == 1 {
+				m.result.QRMode = "cloud"
+			} else {
+				m.result.QRMode = "local"
+			}
+			m.result.QRLimit = downloadChoices[m.qrDownloadIdx].value
+			m.result.QRExpire = expireChoices[m.qrExpireIdx].value
+		}
+
 		m.result.ForceZip = m.forceZip
 		m.result.ForceTar = m.forceTar
 		m.result.Incognito = m.incognito
@@ -593,20 +649,39 @@ func (m SendWizardModel) viewStepOptions() string {
 	s.WriteString(m.renderRadio("Cloud (S3)  ", "Async · pick up later · ≤200MB", m.optCursor == 1, m.modeChoice == 1))
 	s.WriteString(m.renderRadio("QR / Browser", "Share via browser · no JEND needed", m.optCursor == 2, m.modeChoice == 2))
 
-	// -- Compression --
-	s.WriteString(sectionStyle.Render("Compression"))
-	s.WriteString("\n")
+	if m.modeChoice == 2 {
+		// -- QR Settings --
+		s.WriteString(sectionStyle.Render("QR Settings"))
+		s.WriteString("\n")
 
-	s.WriteString(m.renderToggle("Compress as ZIP", "Bundle into .zip archive", m.optCursor == 3, m.forceZip))
-	s.WriteString(m.renderToggle("Compress as TAR", "Bundle into .tar.gz archive", m.optCursor == 4, m.forceTar))
+		modes := []string{"Local", "Cloud"}
+		modeDescs := []string{"Fast, home network", "Works everywhere (WebRTC)"}
+		s.WriteString(m.renderValuePicker("QR Mode", modes[m.qrModeIdx], modeDescs[m.qrModeIdx], m.optCursor == 3))
+		s.WriteString(m.renderValuePicker("Downloads", downloadChoices[m.qrDownloadIdx].label, "Max allowed downloads", m.optCursor == 4))
+		s.WriteString(m.renderValuePicker("Expires", expireChoices[m.qrExpireIdx].label, "Link lifetime", m.optCursor == 5))
 
-	// -- Privacy --
-	s.WriteString(sectionStyle.Render("Privacy"))
-	s.WriteString("\n")
+		// -- Compression --
+		s.WriteString(sectionStyle.Render("Compression"))
+		s.WriteString("\n")
 
-	s.WriteString(m.renderToggle("Incognito   ", "No clipboard, no history", m.optCursor == 5, m.incognito))
-	s.WriteString(m.renderToggle("No clipboard", "Don't copy code", m.optCursor == 6, m.noClipboard))
-	s.WriteString(m.renderToggle("No history  ", "Skip audit log", m.optCursor == 7, m.noHistory))
+		s.WriteString(m.renderToggle("Compress as ZIP", "Bundle into .zip archive", m.optCursor == 6, m.forceZip))
+		s.WriteString(m.renderToggle("Compress as TAR", "Bundle into .tar.gz archive", m.optCursor == 7, m.forceTar))
+	} else {
+		// -- Compression --
+		s.WriteString(sectionStyle.Render("Compression"))
+		s.WriteString("\n")
+
+		s.WriteString(m.renderToggle("Compress as ZIP", "Bundle into .zip archive", m.optCursor == 3, m.forceZip))
+		s.WriteString(m.renderToggle("Compress as TAR", "Bundle into .tar.gz archive", m.optCursor == 4, m.forceTar))
+
+		// -- Privacy --
+		s.WriteString(sectionStyle.Render("Privacy"))
+		s.WriteString("\n")
+
+		s.WriteString(m.renderToggle("Incognito   ", "No clipboard, no history", m.optCursor == 5, m.incognito))
+		s.WriteString(m.renderToggle("No clipboard", "Don't copy code", m.optCursor == 6, m.noClipboard))
+		s.WriteString(m.renderToggle("No history  ", "Skip audit log", m.optCursor == 7, m.noHistory))
+	}
 
 	help := WizardHelpStyle.Render("arrows navigate · enter toggle · esc back")
 	s.WriteString(help)
@@ -794,6 +869,37 @@ func (m SendWizardModel) renderToggle(label, desc string, focused, on bool) stri
 	}
 
 	labelRaw := fmt.Sprintf("%s%s %s %s", prefix, icon, toggle, label)
+	line := style.Render(labelRaw)
+
+	if focused && desc != "" {
+		descStyle := lipgloss.NewStyle().
+			Foreground(ColorSubtext).
+			Faint(true).
+			PaddingLeft(2)
+		line = lipgloss.JoinHorizontal(lipgloss.Left, line, descStyle.Render(desc))
+	}
+
+	return line + "\n"
+}
+
+func (m SendWizardModel) renderValuePicker(label, value, desc string, focused bool) string {
+	prefix := " "
+	icon := ">"
+	style := ToggleOffStyle
+	if focused {
+		style = RadioActiveStyle
+		prefix = ">" // Becomes ">>"
+	}
+
+	// Calculate padding so values align nicely
+	padLen := 15 - len(label)
+	if padLen < 0 {
+		padLen = 0
+	}
+	paddedLabel := label + strings.Repeat(" ", padLen)
+
+	valFmt := fmt.Sprintf("[%s]", value)
+	labelRaw := fmt.Sprintf("%s%s %s %s", prefix, icon, paddedLabel, valFmt)
 	line := style.Render(labelRaw)
 
 	if focused && desc != "" {

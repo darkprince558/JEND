@@ -85,6 +85,7 @@ Example:
 			}
 		}
 
+		ranWizard := false
 		if textContent != "" {
 			isText = true
 		} else if len(args) > 1 {
@@ -116,11 +117,15 @@ Example:
 			}
 
 			// Map wizard results to send params
+			ranWizard = true
 			filePath = wizResult.FilePath
 			textContent = wizResult.TextContent
 			isText = wizResult.IsText
 			useS3 = wizResult.UseS3
 			useQR = wizResult.UseQR
+			qrMode = wizResult.QRMode
+			qrLimit = wizResult.QRLimit
+			qrExpire = wizResult.QRExpire
 			forceZip = wizResult.ForceZip
 			forceTar = wizResult.ForceTar
 			if wizResult.Incognito {
@@ -167,8 +172,8 @@ Example:
 
 		// QR Mode: start local HTTP server instead of P2P sender
 		if useQR {
-			// Show interactive prompt if no explicit flags were set
-			if !cmd.Flags().Changed("qr-limit") && !cmd.Flags().Changed("qr-expire") && !cmd.Flags().Changed("qr-mode") && !headless {
+			// Show interactive prompt if no explicit flags were set AND we didn't just use the full wizard
+			if !ranWizard && !cmd.Flags().Changed("qr-limit") && !cmd.Flags().Changed("qr-expire") && !cmd.Flags().Changed("qr-mode") && !headless {
 				opts, err := ui.RunQRPrompt()
 				if err != nil || opts.Cancelled {
 					fmt.Println("Cancelled.")
