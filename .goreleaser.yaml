@@ -104,3 +104,17 @@ winget:
       name: "goreleaserbot"
       email: "bot@goreleaser.com"
 
+# AUR Configuration (Arch Linux)
+aurs:
+  - name: jend-bin
+    homepage: "https://github.com/darkprince558/jend"
+    description: "JEND: Just Enough Network Drop - Modern, secure, P2P file transfer."
+    maintainers:
+      - "darkprince558 <darkprince558@users.noreply.github.com>"
+    license: MIT
+    private_key: "{{ .Env.AUR_KEY }}"
+    git_url: "ssh://aur@aur.archlinux.org/jend-bin.git"
+    package: |-
+      # bin
+      install -Dm755 "./jend" "${pkgdir}/usr/bin/jend"
+
