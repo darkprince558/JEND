@@ -13,6 +13,7 @@ type QROptions struct {
 	Mode         string        // "local" or "cloud"
 	MaxDownloads int           // 0 = unlimited
 	ExpireAfter  time.Duration // 0 = never
+	AutoApprove  bool          // Skip manual Y/n prompt
 	Cancelled    bool
 }
 
@@ -45,6 +46,7 @@ const (
 	fieldMode qrField = iota
 	fieldDownloads
 	fieldExpire
+	fieldAutoApprove
 	fieldCount // sentinel
 )
 
@@ -54,6 +56,7 @@ type QRPromptModel struct {
 	modeIdx       int
 	downloadIdx   int
 	expireIdx     int
+	approveIdx    int // 0 = No, 1 = Yes
 	confirmed     bool
 	cancelled     bool
 	cloudDisabled bool // true if cloud mode isn't available yet
@@ -65,6 +68,7 @@ func NewQRPromptModel() QRPromptModel {
 		modeIdx:       0, // Local
 		downloadIdx:   0, // Unlimited
 		expireIdx:     0, // Never
+		approveIdx:    0, // No
 		cloudDisabled: false,
 	}
 }
@@ -99,6 +103,10 @@ func (m QRPromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.expireIdx > 0 {
 					m.expireIdx--
 				}
+			case fieldAutoApprove:
+				if m.approveIdx > 0 {
+					m.approveIdx--
+				}
 			}
 		case "right", "l":
 			switch m.activeField {
@@ -113,6 +121,10 @@ func (m QRPromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case fieldExpire:
 				if m.expireIdx < len(expireChoices)-1 {
 					m.expireIdx++
+				}
+			case fieldAutoApprove:
+				if m.approveIdx < 1 {
+					m.approveIdx++
 				}
 			}
 		}
@@ -181,6 +193,23 @@ func (m QRPromptModel) View() string {
 		}
 		s += " "
 	}
+	s += "\n"
+
+	// Auto-Approve
+	approveChoices := []string{"No", "Yes"}
+	ptr = " "
+	if m.activeField == fieldAutoApprove {
+		ptr = pointerStyle.Render("›")
+	}
+	s += fmt.Sprintf("  %s %s ", ptr, labelStyle.Render("Auto-Approve:"))
+	for i, ch := range approveChoices {
+		if i == m.approveIdx {
+			s += selectedStyle.Render("[" + ch + "]")
+		} else {
+			s += dimStyle.Render(" " + ch + " ")
+		}
+		s += " "
+	}
 	s += "\n\n"
 
 	helpStyle := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true)
@@ -199,6 +228,7 @@ func (m QRPromptModel) Result() QROptions {
 		Mode:         mode,
 		MaxDownloads: downloadChoices[m.downloadIdx].value,
 		ExpireAfter:  expireChoices[m.expireIdx].value,
+		AutoApprove:  m.approveIdx == 1,
 		Cancelled:    m.cancelled,
 	}
 }
