@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 
@@ -41,14 +42,44 @@ func NewQUICTransport() *QUICTransport {
 }
 
 // Listen starts a QUIC listener on the specified port.
-// It creates a UDP PacketConn internally.
+// It creates separate IPv4 and IPv6 UDP sockets to guarantee cross-platform
+// compatibility. On Windows, IPV6_V6ONLY defaults to true, meaning a single
+// [::] socket won't accept IPv4 connections (e.g. 127.0.0.1). By binding
+// both explicitly, we ensure all address families work on every OS.
 func (t *QUICTransport) Listen(port string) (QUICListener, error) {
 	tlsConf, err := generateTLSConfig()
 	if err != nil {
 		return nil, err
 	}
 	quicConfig := getQuicConfig()
-	return quic.ListenAddr(":"+port, tlsConf, quicConfig)
+
+	multi := NewMultiListener()
+
+	// IPv4 listener (required)
+	udp4Conn, err := net.ListenPacket("udp4", "0.0.0.0:"+port)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on IPv4: %w", err)
+	}
+	v4Listener, err := quic.Listen(udp4Conn, tlsConf, quicConfig)
+	if err != nil {
+		udp4Conn.Close() //nolint:errcheck
+		return nil, fmt.Errorf("failed to start QUIC on IPv4: %w", err)
+	}
+	multi.Add(v4Listener)
+
+	// IPv6 listener (best-effort — some environments lack IPv6)
+	udp6Conn, err := net.ListenPacket("udp6", "[::]:"+port)
+	if err == nil {
+		v6TlsConf, _ := generateTLSConfig() // Separate TLS config for IPv6
+		v6Listener, err := quic.Listen(udp6Conn, v6TlsConf, getQuicConfig())
+		if err == nil {
+			multi.Add(v6Listener)
+		} else {
+			udp6Conn.Close() //nolint:errcheck
+		}
+	}
+
+	return multi, nil
 }
 
 // ListenPacket starts a QUIC listener on an existing PacketConn (e.g. from ICE).
