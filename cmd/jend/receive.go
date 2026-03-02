@@ -21,6 +21,7 @@ var (
 	recIncognito   bool
 	concurrency    int
 	recAutoApprove bool
+	recHost        string
 	// Re-declare relay flags (could share but globals are messy)
 	recRelayURL  string
 	recRelayUser string
@@ -68,7 +69,7 @@ Example:
 		if flagPort == "" {
 			flagPort = "9000"
 		}
-		startReceiver(code, headless, flagPort, outputDir, autoUnzip, recNoClipboard, recNoHistory, concurrency, turnCfg, recAutoApprove)
+		startReceiver(code, headless, recHost, flagPort, outputDir, autoUnzip, recNoClipboard, recNoHistory, concurrency, turnCfg, recAutoApprove)
 	},
 }
 
@@ -88,21 +89,22 @@ func init() {
 	receiveCmd.Flags().StringVar(&recRelayPass, "relay-pass", "", "TURN Relay Password")
 	receiveCmd.Flags().BoolVarP(&recAutoApprove, "yes", "y", false, "Automatically accept file transfer without prompt")
 	receiveCmd.Flags().StringVar(&flagPort, "port", "9000", "Port to connect to (default 9000)")
+	receiveCmd.Flags().StringVar(&recHost, "host", "", "Connect directly to host (skip discovery)")
 }
 
 // startReceiver initializes the receiver process.
 // It connects using the provided code and starts the TUI or Headless mode.
-func startReceiver(code string, headless bool, port string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig, autoApprove bool) {
+func startReceiver(code string, headless bool, host string, port string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig, autoApprove bool) {
 	if headless {
 		// Headless Mode
-		core.RunReceiver(nil, code, port, outputDir, autoUnzip, noClipboard, noHistory, concurrency, turnCfg, autoApprove)
+		core.RunReceiver(nil, code, host, port, outputDir, autoUnzip, noClipboard, noHistory, concurrency, turnCfg, autoApprove)
 	} else {
 		model := ui.NewModel(ui.RoleReceiver, "", code)
 		p := tea.NewProgram(model, tea.WithAltScreen())
 
 		// Transfer Logic
 		go func() {
-			core.RunReceiver(p, code, port, outputDir, autoUnzip, noClipboard, noHistory, concurrency, turnCfg, autoApprove)
+			core.RunReceiver(p, code, host, port, outputDir, autoUnzip, noClipboard, noHistory, concurrency, turnCfg, autoApprove)
 			// p.Quit() removed to keep UI open for text viewing.
 			// The UI model will handle the decision to quit or stay open.
 		}()

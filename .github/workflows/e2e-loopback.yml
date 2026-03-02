@@ -92,14 +92,14 @@ jobs:
       if: runner.os != 'Windows'
       run: |
         echo "Receiving with code: ${{ env.TRANSFER_CODE }}"
-        ./jend receive ${{ env.TRANSFER_CODE }} --dir ./e2e_output --headless --no-history
+        ./jend receive ${{ env.TRANSFER_CODE }} --host 127.0.0.1 --dir ./e2e_output --headless --no-history
 
     - name: Run Receiver (Windows)
       if: runner.os == 'Windows'
       shell: powershell
       run: |
         echo "Receiving with code: ${{ env.TRANSFER_CODE }}"
-        .\jend.exe receive ${{ env.TRANSFER_CODE }} --dir .\e2e_output --headless --no-history
+        .\jend.exe receive ${{ env.TRANSFER_CODE }} --host 127.0.0.1 --dir .\e2e_output --headless --no-history
 
     - name: Verify Transfer (Unix)
       if: runner.os != 'Windows'

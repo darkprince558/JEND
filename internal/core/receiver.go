@@ -37,7 +37,7 @@ import (
 // 3. Secure Stream Upgrade (AES-256-GCM)
 // 4. File Download (Sequential or Parallel)
 // 5. Checksum Verification
-func RunReceiver(p *tea.Program, code string, port string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig, autoApprove bool) {
+func RunReceiver(p *tea.Program, code string, host string, port string, outputDir string, autoUnzip bool, noClipboard bool, noHistory bool, concurrency int, turnCfg *transport.CustomTurnConfig, autoApprove bool) {
 	sendMsg := func(msg tea.Msg) {
 		if p != nil {
 			p.Send(msg)
@@ -105,53 +105,9 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 		}
 	}()
 
-	sendMsg(ui.StatusMsg("Searching for sender on local network..."))
-
 	// Context to cancel QUIC dialer if WebRTC finishes first
 	ctx, cancelAll := context.WithCancel(context.Background())
 	defer cancelAll()
-
-	// 1. DUAL BROADCAST: Spin up WebRTC Receiver concurrently
-	webDone := make(chan struct{})
-	go func() {
-		sigClientWeb, err := signaling.NewIoTClient(context.Background(), "receiver-web-"+code)
-		if err != nil {
-			return
-		}
-		defer sigClientWeb.Disconnect()
-
-		webReceiver := transport.NewWebRTCReceiver(sigClientWeb, code)
-		err = webReceiver.Receive(ctx, outputDir, func(sent, total int64) {
-			var speed float64
-			elapsed := time.Since(startTime).Seconds()
-			if elapsed > 0 {
-				speed = float64(sent) / elapsed
-			}
-			sendMsg(ui.ProgressMsg{
-				SentBytes:  sent,
-				TotalBytes: total,
-				Speed:      speed,
-				Protocol:   "WebRTC (Browser)",
-			})
-		}, func(name string, size int64, hash string) bool {
-			if !autoApprove && p != nil {
-				respChan := make(chan bool)
-				p.Send(ui.RequestApprovalMsg{
-					Name: name,
-					Size: size,
-					Resp: respChan,
-				})
-				return <-respChan
-			}
-			return true
-		})
-
-		if err == nil {
-			sendMsg(ui.StatusMsg("WebRTC stream completed via DataChannel!"))
-			close(webDone)
-			cancelAll()
-		}
-	}()
 
 	// Create a transport early
 	tr := transport.NewQUICTransport()
@@ -159,93 +115,149 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 	var dialFunc func(context.Context) (*quic.Conn, error)
 	var connectionDesc string
 
-	foundIP, err := discovery.FindSender(code, config.DefaultLocalDiscoveryTimeout)
-	if err == nil {
-		sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender at %s!", foundIP)))
-		dialectAddr := foundIP
-		connectionDesc = foundIP
+	// 0. DIRECT HOST: Skip all discovery if --host is specified
+	webDone := make(chan struct{})
+	if host != "" {
+		directAddr := host + ":" + port
+		sendMsg(ui.StatusMsg(fmt.Sprintf("Direct mode: connecting to %s...", directAddr)))
+		connectionDesc = directAddr
 		dialFunc = func(ctx context.Context) (*quic.Conn, error) {
-			return tr.Dial(dialectAddr)
+			return tr.Dial(directAddr)
 		}
 	} else {
-		sendMsg(ui.StatusMsg("Local discovery timed out, checking Cloud Registry..."))
 
-		item, errCloud := discovery.LookupCloud(code)
-		if errCloud == nil {
-			// Check for S3 Metadata via PublicKey
-			var meta map[string]string
-			if len(item.PublicKey) > 0 {
-				if err := json.Unmarshal(item.PublicKey, &meta); err != nil {
-					sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to parse S3 metadata: %v", err)))
-				}
-			}
+		sendMsg(ui.StatusMsg("Searching for sender on local network..."))
 
-			if meta != nil && meta["type"] == "s3" {
-				key := meta["key"]
-				sendMsg(ui.StatusMsg("Found S3 transfer! Downloading..."))
-
-				identityPoolID := config.IdentityPoolID()
-				region := config.DefaultRegion
-
-				downloadPath, err := transfer.DownloadFromS3(context.Background(), key, outputDir, identityPoolID, region)
-				if err != nil {
-					sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("S3 Download Failed: %w", err), Level: ui.LevelFatal})
-					return
-				}
-
-				sendMsg(ui.StatusMsg(fmt.Sprintf("Download Complete! Saved to %s", downloadPath)))
-
-				// Deregister the code so the sender stops polling
-				regClient := discovery.NewRegistryClient()
-				if err := regClient.Deregister(code); err != nil {
-					sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to deregister code: %v", err)))
-				}
-
+		// 1. DUAL BROADCAST: Spin up WebRTC Receiver concurrently
+		go func() {
+			sigClientWeb, err := signaling.NewIoTClient(context.Background(), "receiver-web-"+code)
+			if err != nil {
 				return
 			}
+			defer sigClientWeb.Disconnect()
 
-			// Standard P2P via Cloud
-			port = fmt.Sprintf("%d", item.Port) // Update outer port variable for localhost fallback
-			cloudIP := fmt.Sprintf("%s:%d", item.IP, item.Port)
-			sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender via Cloud at %s!", cloudIP)))
-			dialectAddr := cloudIP
-			connectionDesc = cloudIP
+			webReceiver := transport.NewWebRTCReceiver(sigClientWeb, code)
+			err = webReceiver.Receive(ctx, outputDir, func(sent, total int64) {
+				var speed float64
+				elapsed := time.Since(startTime).Seconds()
+				if elapsed > 0 {
+					speed = float64(sent) / elapsed
+				}
+				sendMsg(ui.ProgressMsg{
+					SentBytes:  sent,
+					TotalBytes: total,
+					Speed:      speed,
+					Protocol:   "WebRTC (Browser)",
+				})
+			}, func(name string, size int64, hash string) bool {
+				if !autoApprove && p != nil {
+					respChan := make(chan bool)
+					p.Send(ui.RequestApprovalMsg{
+						Name: name,
+						Size: size,
+						Resp: respChan,
+					})
+					return <-respChan
+				}
+				return true
+			})
+
+			if err == nil {
+				sendMsg(ui.StatusMsg("WebRTC stream completed via DataChannel!"))
+				close(webDone)
+				cancelAll()
+			}
+		}()
+
+		foundIP, err := discovery.FindSender(code, config.DefaultLocalDiscoveryTimeout)
+		if err == nil {
+			sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender at %s!", foundIP)))
+			dialectAddr := foundIP
+			connectionDesc = foundIP
 			dialFunc = func(ctx context.Context) (*quic.Conn, error) {
 				return tr.Dial(dialectAddr)
 			}
 		} else {
-			sendMsg(ui.StatusMsg("Cloud lookup failed. Initiating P2P Signaling (ICE)..."))
+			sendMsg(ui.StatusMsg("Local discovery timed out, checking Cloud Registry..."))
 
-			sigClient, errSig := signaling.NewIoTClient(context.Background(), "receiver-"+code)
-			if errSig == nil {
-				p2p := transport.NewP2PManager(sigClient, code, turnCfg)
-				pc, errIce := p2p.EstablishConnection(context.Background(), true)
-
-				sigClient.Disconnect()
-
-				if errIce == nil {
-					sendMsg(ui.StatusMsg("P2P (ICE) Connected! Switching transport..."))
-					connectionDesc = "via P2P ICE"
-					dialFunc = func(ctx context.Context) (*quic.Conn, error) {
-						return tr.DialPacket(pc, nil)
+			item, errCloud := discovery.LookupCloud(code)
+			if errCloud == nil {
+				// Check for S3 Metadata via PublicKey
+				var meta map[string]string
+				if len(item.PublicKey) > 0 {
+					if err := json.Unmarshal(item.PublicKey, &meta); err != nil {
+						sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to parse S3 metadata: %v", err)))
 					}
-				} else {
-					sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("P2P ICE Failed: %v", errIce), Level: ui.LevelWarning})
+				}
+
+				if meta != nil && meta["type"] == "s3" {
+					key := meta["key"]
+					sendMsg(ui.StatusMsg("Found S3 transfer! Downloading..."))
+
+					identityPoolID := config.IdentityPoolID()
+					region := config.DefaultRegion
+
+					downloadPath, err := transfer.DownloadFromS3(context.Background(), key, outputDir, identityPoolID, region)
+					if err != nil {
+						sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("S3 Download Failed: %w", err), Level: ui.LevelFatal})
+						return
+					}
+
+					sendMsg(ui.StatusMsg(fmt.Sprintf("Download Complete! Saved to %s", downloadPath)))
+
+					// Deregister the code so the sender stops polling
+					regClient := discovery.NewRegistryClient()
+					if err := regClient.Deregister(code); err != nil {
+						sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to deregister code: %v", err)))
+					}
+
+					return
+				}
+
+				// Standard P2P via Cloud
+				port = fmt.Sprintf("%d", item.Port) // Update outer port variable for localhost fallback
+				cloudIP := fmt.Sprintf("%s:%d", item.IP, item.Port)
+				sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender via Cloud at %s!", cloudIP)))
+				dialectAddr := cloudIP
+				connectionDesc = cloudIP
+				dialFunc = func(ctx context.Context) (*quic.Conn, error) {
+					return tr.Dial(dialectAddr)
 				}
 			} else {
-				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("signaling auth failed: %v. Using local network only", errSig), Level: ui.LevelWarning})
+				sendMsg(ui.StatusMsg("Cloud lookup failed. Initiating P2P Signaling (ICE)..."))
+
+				sigClient, errSig := signaling.NewIoTClient(context.Background(), "receiver-"+code)
+				if errSig == nil {
+					p2p := transport.NewP2PManager(sigClient, code, turnCfg)
+					pc, errIce := p2p.EstablishConnection(context.Background(), true)
+
+					sigClient.Disconnect()
+
+					if errIce == nil {
+						sendMsg(ui.StatusMsg("P2P (ICE) Connected! Switching transport..."))
+						connectionDesc = "via P2P ICE"
+						dialFunc = func(ctx context.Context) (*quic.Conn, error) {
+							return tr.DialPacket(pc, nil)
+						}
+					} else {
+						sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("P2P ICE Failed: %v", errIce), Level: ui.LevelWarning})
+					}
+				} else {
+					sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("signaling auth failed: %v. Using local network only", errSig), Level: ui.LevelWarning})
+				}
 			}
 		}
-	}
 
-	// Fallback to Localhost if everything failed (Legacy/Testing)
-	if dialFunc == nil {
-		sendMsg(ui.StatusMsg("Fallback exhausted. Defaulting to 127.0.0.1 dial..."))
-		connectionDesc = "127.0.0.1"
-		dialFunc = func(ctx context.Context) (*quic.Conn, error) {
-			return tr.Dial("127.0.0.1:" + port)
+		// Fallback to Localhost if everything failed (Legacy/Testing)
+		if dialFunc == nil {
+			sendMsg(ui.StatusMsg("Fallback exhausted. Defaulting to 127.0.0.1 dial..."))
+			connectionDesc = "127.0.0.1"
+			dialFunc = func(ctx context.Context) (*quic.Conn, error) {
+				return tr.Dial("127.0.0.1:" + port)
+			}
 		}
-	}
+
+	} // end of else (discovery path)
 
 	retryCount := 0
 	maxRetries := config.MaxConnectionRetries
