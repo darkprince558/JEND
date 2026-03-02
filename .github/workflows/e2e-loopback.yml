@@ -64,8 +64,8 @@ jobs:
       if: runner.os == 'Windows'
       shell: powershell
       run: |
-        Start-Process -FilePath ".\jend.exe" -ArgumentList "send test_payload.txt --headless --no-history" -RedirectStandardOutput "sender.log" -RedirectStandardError "sender_err.log" -NoNewWindow
-        Start-Sleep -Seconds 5
+        Start-Process -FilePath ".\jend.exe" -ArgumentList "send test_payload.txt --headless --no-history" -RedirectStandardOutput "sender.log" -RedirectStandardError "sender_err.log" -WindowStyle Hidden
+        Start-Sleep -Seconds 8
         Get-Content sender.log
         $match = Select-String -Path "sender.log" -Pattern "Code: ([\w-]+)"
         if ($match) {
