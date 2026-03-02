@@ -48,7 +48,7 @@ func (t *QUICTransport) Listen(port string) (QUICListener, error) {
 		return nil, err
 	}
 	quicConfig := getQuicConfig()
-	return quic.ListenAddr("0.0.0.0:"+port, tlsConf, quicConfig)
+	return quic.ListenAddr(":"+port, tlsConf, quicConfig)
 }
 
 // ListenPacket starts a QUIC listener on an existing PacketConn (e.g. from ICE).
