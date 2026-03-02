@@ -205,6 +205,7 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 			}
 
 			// Standard P2P via Cloud
+			port = fmt.Sprintf("%d", item.Port) // Update outer port variable for localhost fallback
 			cloudIP := fmt.Sprintf("%s:%d", item.IP, item.Port)
 			sendMsg(ui.StatusMsg(fmt.Sprintf("Found sender via Cloud at %s!", cloudIP)))
 			dialectAddr := cloudIP
