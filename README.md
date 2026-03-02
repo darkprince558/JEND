@@ -90,6 +90,22 @@ The easiest way to share a file with someone who does not have JEND installed, s
 
   Instead of a local server, JEND establishes an encrypted WebRTC connection directly to the receiver's browser anywhere in the world. It provides a 6-character transfer code (e.g. `Af38HJ`) that they can enter at the pairing website, or they can simply scan the QR code.
 
+### Receiving via WebRTC (Browser)
+
+If someone sends a file using `--qr --qr-mode cloud`, the receiving user can also quickly receive it directly via the terminal (instead of the browser) if they have JEND installed:
+
+```bash
+jend receive --qr <6-character-code>
+```
+
+This will connect P2P via WebRTC, display file details, and prompt for manual approval before saving, providing a secure and fast way to accept web-initiated transfers directly to the command line.
+
+### Security Features
+
+* **Quarantine:** By default, JEND quarantines potentially dangerous executable files (like `.exe`, `.sh`, `.bat`) by removing their execute permissions upon download to prevent accidental running.
+* **Manual Approval:** JEND displays the file name, size, type, and an SHA-256 hash preview, requiring the user to explicitly type `y` to accept the transfer.
+* **Auto-Approve:** For automated scripts, you can pass `--auto-approve` to skip the manual confirmation prompt.
+
 ### Power User Workflows
 
 * **Multi-File Sending:** Pass multiple files or directories, and JEND will bundle them into a single zip archive on the fly.
