@@ -30,7 +30,7 @@ func PromptApproval(name, sizeStr string) bool {
 	fmt.Print(msg)
 
 	var response string
-	fmt.Scanln(&response)
+	_, _ = fmt.Scanln(&response)
 
 	response = strings.TrimSpace(strings.ToLower(response))
 	return response == "" || response == "y" || response == "yes"
