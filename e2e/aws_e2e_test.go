@@ -1,15 +1,17 @@
+//go:build e2e
+
 package e2e
 
 import (
-"bufio"
-"bytes"
-"fmt"
-"os"
-"os/exec"
-"path/filepath"
-"strings"
-"testing"
-"time"
+	"bufio"
+	"bytes"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
 )
 
 // Binary path relative to this test file
@@ -89,21 +91,21 @@ func TestAWSS3Transfer(t *testing.T) {
 	}
 
 	// Wait up to 10 seconds for sender to gracefully exit
-    senderWaitCh := make(chan error)
-    go func() {
-        senderWaitCh <- senderCmd.Wait()
-    }()
+	senderWaitCh := make(chan error)
+	go func() {
+		senderWaitCh <- senderCmd.Wait()
+	}()
 
-    select {
-    case err := <-senderWaitCh:
-        if err != nil {
-            t.Logf("Sender exited with error: %v (Usually due to context cancellation - OK)", err)
-        } else {
-            t.Log("Sender gracefully exited!")
-        }
-    case <-time.After(20 * time.Second):
-        t.Fatal("FAILED: Sender did not exit gracefully after successful transfer via S3")
-    }
+	select {
+	case err := <-senderWaitCh:
+		if err != nil {
+			t.Logf("Sender exited with error: %v (Usually due to context cancellation - OK)", err)
+		} else {
+			t.Log("Sender gracefully exited!")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("FAILED: Sender did not exit gracefully after successful transfer via S3")
+	}
 
 	// Verify Content
 	destFile := filepath.Join(outDir, "aws_payload.txt")
