@@ -69,6 +69,13 @@ jobs:
             exit 1
         }
 
+    - name: Allow JEND through Windows Firewall
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        $absPath = Resolve-Path ".\jend.exe"
+        New-NetFirewallRule -DisplayName "JEND CI" -Direction Inbound -Program $absPath.Path -Action Allow
+
     - name: Run Receiver (Unix)
       if: runner.os != 'Windows'
       run: |

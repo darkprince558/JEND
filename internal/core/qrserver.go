@@ -42,7 +42,6 @@ type QRServer struct {
 	server        *http.Server
 	mu            sync.Mutex
 	downloadCount int
-	limitReached  bool
 }
 
 // NewQRServer creates a new QR download server.

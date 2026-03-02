@@ -77,7 +77,7 @@ func (a *AvahiProvider) Advertise(instanceName, serviceType, domain string, port
 	}
 
 	return func() {
-		eg.Reset()
+		_ = eg.Reset()
 		server.EntryGroupFree(eg)
 		conn.Close()
 	}, nil

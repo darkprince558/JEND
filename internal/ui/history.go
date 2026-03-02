@@ -230,10 +230,6 @@ func (m HistoryModel) View() string {
 	if w == 0 {
 		w = 100
 	}
-	h := m.height
-	if h == 0 {
-		h = 30
-	}
 
 	var s strings.Builder
 

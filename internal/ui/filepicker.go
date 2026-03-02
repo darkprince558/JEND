@@ -127,7 +127,7 @@ func NewFilePickerModel(directoryMode bool, previousPaths []string) *FilePickerM
 	// Setup Staging List (Right Pane)
 	sl := list.New([]list.Item{}, stagedDelegate{width: 20}, 0, 0)
 	sl.Title = "Selected to Send"
-	sl.Styles.Title = bl.Styles.Title.Copy()
+	sl.Styles.Title = bl.Styles.Title
 	sl.Styles.TitleBar = sl.Styles.TitleBar.PaddingBottom(1) // Single extra space between title and list items
 	sl.SetShowTitle(true)                                    // Bubbles defaults title left, we center the wrapper lower down
 	sl.SetShowStatusBar(false)
@@ -351,10 +351,7 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.searchInput.Blur()
 				m.searchInput.Placeholder = "[ / to Spotlight Search ]"
-				if m.activePane == PaneStaging {
-					// We only want to focus staging if there are items, otherwise bounce
-					// But we will allow it to visually show the border jump even if empty.
-				}
+				// empty branch removed
 			}
 			m.browserList.SetShowTitle(m.activePane == PaneBrowser)
 			return m, nil
