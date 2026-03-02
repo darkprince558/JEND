@@ -45,7 +45,7 @@ func TestQUICConnection(t *testing.T) {
 	}()
 
 	// Dial
-	conn, err := tr.Dial("localhost:" + port)
+	conn, err := tr.Dial("127.0.0.1:" + port)
 	if err != nil {
 		t.Fatalf("Failed to dial: %v", err)
 	}

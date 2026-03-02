@@ -240,10 +240,10 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 
 	// Fallback to Localhost if everything failed (Legacy/Testing)
 	if dialFunc == nil {
-		sendMsg(ui.StatusMsg("Fallback exhausted. Defaulting to localhost dial..."))
-		connectionDesc = "localhost"
+		sendMsg(ui.StatusMsg("Fallback exhausted. Defaulting to 127.0.0.1 dial..."))
+		connectionDesc = "127.0.0.1"
 		dialFunc = func(ctx context.Context) (*quic.Conn, error) {
-			return tr.Dial("localhost:" + port)
+			return tr.Dial("127.0.0.1:" + port)
 		}
 	}
 
@@ -284,12 +284,12 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 				return
 			}
 
-			if retryCount > 2 && !triedLocalhost && connectionDesc != "localhost" {
-				sendMsg(ui.StatusMsg("Connection failing. Attempting fallback to localhost..."))
+			if retryCount > 2 && !triedLocalhost && connectionDesc != "127.0.0.1" && connectionDesc != "localhost" {
+				sendMsg(ui.StatusMsg("Connection failing. Attempting fallback to 127.0.0.1..."))
 				dialFunc = func(ctx context.Context) (*quic.Conn, error) {
-					return tr.Dial("localhost:" + port)
+					return tr.Dial("127.0.0.1:" + port)
 				}
-				connectionDesc = "localhost (Fallback)"
+				connectionDesc = "127.0.0.1 (Fallback)"
 				triedLocalhost = true
 				retryCount = 0
 				time.Sleep(500 * time.Millisecond)
