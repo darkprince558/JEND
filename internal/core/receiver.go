@@ -107,6 +107,52 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 
 	sendMsg(ui.StatusMsg("Searching for sender on local network..."))
 
+	// Context to cancel QUIC dialer if WebRTC finishes first
+	ctx, cancelAll := context.WithCancel(context.Background())
+	defer cancelAll()
+
+	// 1. DUAL BROADCAST: Spin up WebRTC Receiver concurrently
+	webDone := make(chan struct{})
+	go func() {
+		sigClientWeb, err := signaling.NewIoTClient(context.Background(), "receiver-web-"+code)
+		if err != nil {
+			return
+		}
+		defer sigClientWeb.Disconnect()
+
+		webReceiver := transport.NewWebRTCReceiver(sigClientWeb, code)
+		err = webReceiver.Receive(ctx, outputDir, func(sent, total int64) {
+			var speed float64
+			elapsed := time.Since(startTime).Seconds()
+			if elapsed > 0 {
+				speed = float64(sent) / elapsed
+			}
+			sendMsg(ui.ProgressMsg{
+				SentBytes:  sent,
+				TotalBytes: total,
+				Speed:      speed,
+				Protocol:   "WebRTC (Browser)",
+			})
+		}, func(name string, size int64, hash string) bool {
+			if !autoApprove && p != nil {
+				respChan := make(chan bool)
+				p.Send(ui.RequestApprovalMsg{
+					Name: name,
+					Size: size,
+					Resp: respChan,
+				})
+				return <-respChan
+			}
+			return true
+		})
+
+		if err == nil {
+			sendMsg(ui.StatusMsg("WebRTC stream completed via DataChannel!"))
+			close(webDone)
+			cancelAll()
+		}
+	}()
+
 	// Create a transport early
 	tr := transport.NewQUICTransport()
 
@@ -148,6 +194,13 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 				}
 
 				sendMsg(ui.StatusMsg(fmt.Sprintf("Download Complete! Saved to %s", downloadPath)))
+
+				// Deregister the code so the sender stops polling
+				regClient := discovery.NewRegistryClient()
+				if err := regClient.Deregister(code); err != nil {
+					sendMsg(ui.StatusMsg(fmt.Sprintf("Warning: Failed to deregister code: %v", err)))
+				}
+
 				return
 			}
 
@@ -201,7 +254,26 @@ func RunReceiver(p *tea.Program, code string, port string, outputDir string, aut
 
 		sendMsg(ui.StatusMsg("Dialing " + connectionDesc + "..."))
 
-		conn, err := dialFunc(context.Background())
+		// Preempt dial with webDone
+		type dialResult struct {
+			conn *quic.Conn
+			err  error
+		}
+		dialChan := make(chan dialResult, 1)
+		go func() {
+			c, e := dialFunc(ctx)
+			dialChan <- dialResult{c, e}
+		}()
+
+		var conn *quic.Conn
+		var err error
+		select {
+		case <-webDone:
+			return // WebRTC finished the download successfully!
+		case res := <-dialChan:
+			conn = res.conn
+			err = res.err
+		}
 
 		if err != nil {
 			retryCount++

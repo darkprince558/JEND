@@ -1,0 +1,100 @@
+name: Cross-OS E2E Loopback Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  e2e-loopback:
+    name: Test on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+        
+    - name: Build JEND
+      run: go build -o jend${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./cmd/jend
+      
+    - name: Create Test Payload (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        mkdir -p e2e_output
+        echo "Hello from JEND E2E Loopback on ${{ matrix.os }}!" > test_payload.txt
+        
+    - name: Create Test Payload (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        mkdir e2e_output
+        echo "Hello from JEND E2E Loopback on ${{ matrix.os }}!" > test_payload.txt
+
+    - name: Run Sender Background (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        ./jend send test_payload.txt --headless --no-history > sender.log 2>&1 &
+        # Wait a few seconds for the signaling setup and code generation
+        sleep 5
+        cat sender.log
+        CODE=$(grep "Code: " sender.log | head -n 1 | sed 's/Code: //')
+        if [ -z "$CODE" ]; then
+          echo "Error: Failed to extract code from sender logs."
+          exit 1
+        fi
+        echo "TRANSFER_CODE=$CODE" >> $GITHUB_ENV
+
+    - name: Run Sender Background (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        Start-Process -FilePath ".\jend.exe" -ArgumentList "send test_payload.txt --headless --no-history" -RedirectStandardOutput "sender.log" -RedirectStandardError "sender.log" -NoNewWindow
+        Start-Sleep -Seconds 5
+        Get-Content sender.log
+        $match = Select-String -Path "sender.log" -Pattern "Code: ([\w-]+)"
+        if ($match) {
+            $code = $match.Matches.Groups[1].Value
+            echo "TRANSFER_CODE=$code" >> $env:GITHUB_ENV
+        } else {
+            Write-Error "Failed to extract code from sender logs."
+            exit 1
+        }
+
+    - name: Run Receiver (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "Receiving with code: ${{ env.TRANSFER_CODE }}"
+        ./jend receive ${{ env.TRANSFER_CODE }} --dir ./e2e_output --headless --no-history
+        
+    - name: Run Receiver (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        echo "Receiving with code: ${{ env.TRANSFER_CODE }}"
+        .\jend.exe receive ${{ env.TRANSFER_CODE }} --dir .\e2e_output --headless --no-history
+
+    - name: Verify Transfer (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        cat e2e_output/test_payload.txt
+        grep "Hello from JEND E2E Loopback" e2e_output/test_payload.txt
+        
+    - name: Verify Transfer (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        Get-Content e2e_output\test_payload.txt
+        $match = Select-String -Path "e2e_output\test_payload.txt" -Pattern "Hello from JEND E2E Loopback"
+        if (-not $match) {
+            Write-Error "Transferred payload does not match expected output!"
+            exit 1
+        }

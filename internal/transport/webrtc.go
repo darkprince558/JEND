@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -352,5 +353,194 @@ func (s *WebRTCSender) streamFile(dc *webrtc.DataChannel) {
 	s.mu.Unlock()
 	if s.onComplete != nil {
 		s.onComplete(count)
+	}
+}
+
+// WebRTCReceiver connects to a browser sender via WebRTC Data Channels.
+type WebRTCReceiver struct {
+	signaler *signaling.IoTClient
+	token    string
+}
+
+// NewWebRTCReceiver creates a WebRTC receiver for grabbing streams from browsers.
+func NewWebRTCReceiver(signaler *signaling.IoTClient, token string) *WebRTCReceiver {
+	return &WebRTCReceiver{
+		signaler: signaler,
+		token:    token,
+	}
+}
+
+// Receive runs the SDP loop and saves the file to outputDir.
+func (r *WebRTCReceiver) Receive(ctx context.Context, outputDir string, onProgress func(sent, total int64), onMeta func(name string, size int64, hash string) bool) error {
+	topic := fmt.Sprintf("jend/signal/web-%s", r.token)
+
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
+		},
+	}
+
+	pc, err := webrtc.NewPeerConnection(config)
+	if err != nil {
+		return err
+	}
+	defer pc.Close()
+
+	sessionID := fmt.Sprintf("recv-%d", time.Now().UnixNano())
+
+	// Prepare connection states
+	connected := make(chan struct{})
+	done := make(chan error, 1)
+
+	var outFile *os.File
+	var totalSize int64
+	var received int64
+
+	// Handle Data Channel coming from the sender
+	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			if msg.IsString {
+				strData := string(msg.Data)
+				if strings.HasPrefix(strData, "ERROR:") {
+					done <- fmt.Errorf("sender error: %s", strings.TrimPrefix(strData, "ERROR:"))
+					return
+				}
+				if strData == "EOF" {
+					if outFile != nil {
+						_ = outFile.Close()
+						// Simple integrity check logic could go here
+					}
+					done <- nil
+					return
+				}
+
+				// Handle Metadata JSON
+				var meta fileMetaMessage
+				if err := json.Unmarshal(msg.Data, &meta); err == nil && meta.Type == "meta" {
+					safeName := filepath.Base(meta.Name)
+					if outputDir != "." {
+						_ = os.MkdirAll(outputDir, 0755)
+					}
+					finalPath := filepath.Join(outputDir, safeName)
+
+					f, err := os.Create(finalPath)
+					if err != nil {
+						_ = dc.SendText("ERROR: " + err.Error())
+						done <- err
+						return
+					}
+
+					outFile = f
+					totalSize = meta.Size
+
+					// Notify caller of meta, ask for approval if needed
+					if onMeta != nil {
+						if !onMeta(meta.Name, meta.Size, meta.Hash) {
+							_ = dc.SendText("ERROR: transfer rejected by receiver")
+							done <- fmt.Errorf("rejected")
+							return
+						}
+					}
+
+					// Tell browser we are ready for chunks
+					_ = dc.SendText("ready")
+					return
+				}
+			} else {
+				// Binary Chunk Data
+				if outFile != nil {
+					n, err := outFile.Write(msg.Data)
+					if err == nil {
+						received += int64(n)
+						if onProgress != nil {
+							onProgress(received, totalSize)
+						}
+					}
+				}
+			}
+		})
+	})
+
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if state == webrtc.PeerConnectionStateConnected {
+			close(connected)
+		} else if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
+			select {
+			case <-connected:
+			default:
+				done <- fmt.Errorf("connection failed")
+			}
+		}
+	})
+
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+		candidateJSON := c.ToJSON()
+		msg := iceMessage{
+			Type:      "ice",
+			Candidate: candidateJSON.Candidate,
+			SessionID: sessionID,
+		}
+		if candidateJSON.SDPMid != nil {
+			msg.SDPMid = *candidateJSON.SDPMid
+		}
+		if candidateJSON.SDPMLineIndex != nil {
+			msg.SDPMIndex = *candidateJSON.SDPMLineIndex
+		}
+		payload, _ := json.Marshal(msg)
+		_ = r.signaler.Publish(topic, payload)
+	})
+
+	err = r.signaler.Subscribe(topic, func(client mqtt.Client, msg mqtt.Message) {
+		var raw map[string]interface{}
+		if err := json.Unmarshal(msg.Payload(), &raw); err != nil {
+			return
+		}
+		msgType, _ := raw["type"].(string)
+
+		if msgType == "answer" {
+			var answer sdpMessage
+			if err := json.Unmarshal(msg.Payload(), &answer); err == nil && answer.SessionID == sessionID {
+				_ = pc.SetRemoteDescription(webrtc.SessionDescription{
+					Type: webrtc.SDPTypeAnswer,
+					SDP:  answer.SDP,
+				})
+			}
+		} else if msgType == "ice-server" {
+			var ice iceMessage
+			if err := json.Unmarshal(msg.Payload(), &ice); err == nil && ice.SessionID == sessionID {
+				_ = pc.AddICECandidate(webrtc.ICECandidateInit{Candidate: ice.Candidate})
+			}
+		}
+	})
+
+	if err != nil {
+		return err
+	}
+
+	// Receiver acts as the Caller (makes the Offer) to trigger DataChannel from the Sender
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		return err
+	}
+	if err := pc.SetLocalDescription(offer); err != nil {
+		return err
+	}
+
+	offerMsg := sdpMessage{
+		Type:      "offer",
+		SDP:       offer.SDP,
+		SessionID: sessionID,
+	}
+	payload, _ := json.Marshal(offerMsg)
+	_ = r.signaler.Publish(topic, payload)
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-done:
+		return err
 	}
 }

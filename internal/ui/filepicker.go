@@ -491,14 +491,20 @@ func (m *FilePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "enter":
 				if item, ok := m.browserList.SelectedItem().(fileItem); ok {
-					if item.isDir {
-						// Navigate into directory
-						m.currentDir = item.path
-						m.browserList.ResetSelected()
-						m.readDir(m.currentDir)
-						return m, nil
+					if m.directoryMode {
+						if item.isDir && item.name != ".." {
+							m.selectedFiles[item.path] = item
+							m.quitting = true
+							return m, tea.Quit
+						}
 					} else {
-						if !m.directoryMode {
+						if item.isDir {
+							// Navigate into directory
+							m.currentDir = item.path
+							m.browserList.ResetSelected()
+							m.readDir(m.currentDir)
+							return m, nil
+						} else {
 							// If we hit enter on a file, and staging is empty, send just this file
 							// If someone already staged items via spacebar, just stage this and submit.
 							m.selectedFiles[item.path] = item

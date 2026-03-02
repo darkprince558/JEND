@@ -6,8 +6,6 @@ import (
 	"net"
 	"strings"
 	"time"
-
-	"github.com/grandcat/zeroconf"
 )
 
 // FindSender scans the network for a JEND sender matching the code.
@@ -52,19 +50,14 @@ func getLocalIPForScan() (string, error) {
 
 // findSenderMDNS is the original mDNS-based sender discovery.
 func findSenderMDNS(code string, timeout time.Duration) (string, error) {
-	resolver, err := zeroconf.NewResolver(nil)
-	if err != nil {
-		return "", err
-	}
-
-	entries := make(chan *zeroconf.ServiceEntry)
+	entries := make(chan *MDNSServiceEntry)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	// Hash the code to compare with TXT records
 	targetHash := ComputeHash(code)
 
-	if err := resolver.Browse(ctx, ServiceType, "local.", entries); err != nil {
+	if err := NewMDNSProvider().Browse(ctx, ServiceType, "local.", entries); err != nil {
 		return "", err
 	}
 

@@ -2,8 +2,6 @@ package discovery
 
 import (
 	"fmt"
-
-	"github.com/grandcat/zeroconf"
 )
 
 // StartAdvertising announces the JEND service on the local network.
@@ -17,16 +15,15 @@ func StartAdvertising(port int, code string) (func(), error) {
 	// TXT record holds the full hash for the receiver to verify
 	txt := []string{fmt.Sprintf("hash=%s", codeHash)}
 
-	server, err := zeroconf.Register(
+	shutdownMdns, err := NewMDNSProvider().Advertise(
 		instanceName,
 		ServiceType,
 		"local.",
 		port,
 		txt,
-		nil, // Check all interfaces (IPv4 and IPv6)
 	)
 	if err != nil {
-		return nil, err
+		fmt.Printf("Warning: mDNS advertising failed: %v\n", err)
 	}
 
 	// Start subnet scan listener (fallback when mDNS is blocked)
@@ -42,7 +39,9 @@ func StartAdvertising(port int, code string) (func(), error) {
 	}
 
 	shutdown := func() {
-		server.Shutdown()
+		if shutdownMdns != nil {
+			shutdownMdns()
+		}
 		if scanShutdown != nil {
 			scanShutdown()
 		}

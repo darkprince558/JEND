@@ -65,6 +65,12 @@ func Handler(ctx context.Context, request events.APIGatewayV2HTTPRequest) (event
 			return errorResponse(400, "Missing code parameter"), nil
 		}
 		return handleLookup(ctx, code)
+	case "DELETE":
+		code := request.PathParameters["code"]
+		if code == "" {
+			return errorResponse(400, "Missing code parameter"), nil
+		}
+		return handleDeregister(ctx, code)
 	default:
 		return errorResponse(405, "Method Not Allowed"), nil
 	}
@@ -137,6 +143,26 @@ func handleLookup(ctx context.Context, code string) (events.APIGatewayV2HTTPResp
 	return events.APIGatewayV2HTTPResponse{
 		StatusCode: 200,
 		Body:       string(responseBody),
+		Headers:    map[string]string{"Content-Type": "application/json"},
+	}, nil
+}
+
+func handleDeregister(ctx context.Context, code string) (events.APIGatewayV2HTTPResponse, error) {
+	_, err := svc.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]types.AttributeValue{
+			"code": &types.AttributeValueMemberS{Value: code},
+		},
+	})
+
+	if err != nil {
+		log.Printf("Failed to delete item: %v", err)
+		return errorResponse(500, "Failed to deregister code"), nil
+	}
+
+	return events.APIGatewayV2HTTPResponse{
+		StatusCode: 200,
+		Body:       `{"message": "Deregistered successfully"}`,
 		Headers:    map[string]string{"Content-Type": "application/json"},
 	}, nil
 }

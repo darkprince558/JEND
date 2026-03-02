@@ -1,0 +1,19 @@
+FROM golang:1.22-bookworm
+
+# Install test dependencies
+RUN apt-get update && apt-get install -y curl jq unzip bash && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy dependency files first for caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source
+COPY . .
+
+# Build binary
+RUN go build -o /usr/local/bin/jend ./cmd/jend
+
+# Default command
+CMD ["jend", "--help"]

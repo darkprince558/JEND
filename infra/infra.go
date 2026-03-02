@@ -105,6 +105,12 @@ func NewInfraStack(scope constructs.Construct, id string, props *InfraStackProps
 		Integration: integration,
 	})
 
+	httpApi.AddRoutes(&awsapigatewayv2.AddRoutesOptions{
+		Path:        jsii.String("/lookup/{code}"),
+		Methods:     &[]awsapigatewayv2.HttpMethod{awsapigatewayv2.HttpMethod_DELETE},
+		Integration: integration,
+	})
+
 	// 4. Output the API Endpoint
 	awscdk.NewCfnOutput(stack, jsii.String("ApiEndpoint"), &awscdk.CfnOutputProps{
 		Value: httpApi.ApiEndpoint(),

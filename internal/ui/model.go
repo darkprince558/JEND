@@ -512,7 +512,11 @@ func (m Model) View() string {
 					lipgloss.NewStyle().Foreground(ColorSubtext).Render(FormatBytes(m.TotalBytes)+" received"),
 				)
 			} else if m.Role == RoleSender {
-				details = lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render("File sent successfully")
+				details = lipgloss.JoinVertical(lipgloss.Center,
+					lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render("File sent successfully"),
+					"",
+					ViewCode(m.Code),
+				)
 			} else {
 				details = lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render("All files transmitted successfully")
 			}

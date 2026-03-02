@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quic-go/quic-go"
+
 	"github.com/darkprince558/jend/internal/config"
 	"github.com/darkprince558/jend/internal/transfer"
 	"github.com/darkprince558/jend/internal/transport"
@@ -137,9 +139,6 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 			return
 		}
 
-		sendMsg(ui.StatusMsg("Code Registered! Waiting for receiver to download..."))
-
-		sendMsg(ui.ProgressMsg{SentBytes: fileSize, TotalBytes: fileSize}) // Show full progress
 		sendMsg(ui.StatusMsg("File is ready for pickup. Waiting for receiver..."))
 
 		// Poll the registry every few seconds to see if the receiver picked it up
@@ -159,6 +158,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 				if err != nil {
 					// Entry gone = receiver picked it up
 					sendMsg(ui.StatusMsg("Receiver downloaded the file! Transfer complete."))
+					sendMsg(ui.ProgressMsg{SentBytes: fileSize, TotalBytes: fileSize})
 					return
 				}
 			}
@@ -337,6 +337,43 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 
 	sendMsg(ui.StatusMsg(fmt.Sprintf("Waiting for receiver (timeout: %s)...", timeout)))
 
+	// Start WebRTC DataChannel Server (for Browser Receivers)
+	webDone := make(chan struct{})
+	go func() {
+		sigClientWeb, err := signaling.NewIoTClient(context.Background(), "sender-web-"+code)
+		if err != nil {
+			return
+		}
+		defer sigClientWeb.Disconnect()
+
+		webSender := transport.NewWebRTCSender(sigClientWeb, transport.WebRTCSenderConfig{
+			Token:       code,
+			FilePath:    filePath,
+			FileName:    fileName,
+			FileSize:    fileSize,
+			FileHash:    fileHash,
+			IsText:      isText,
+			TextContent: textContent,
+			OnProgress: func(sent, total int64) {
+				var speed float64
+				elapsed := time.Since(startTime).Seconds()
+				if elapsed > 0 {
+					speed = float64(sent) / elapsed
+				}
+				sendMsg(ui.ProgressMsg{
+					SentBytes:  sent,
+					TotalBytes: total,
+					Speed:      speed,
+					Protocol:   "WebRTC (Browser)",
+				})
+			},
+			OnComplete: func(downloadCount int) {
+				close(webDone)
+			},
+		})
+		_ = webSender.Run(ctx)
+	}()
+
 	var currentOffset int64 = 0
 
 	for {
@@ -354,7 +391,29 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 		}
 
 		acceptCtx, cancel := context.WithTimeout(ctx, timeout-time.Since(startTime))
-		conn, err := multiListener.Accept(acceptCtx)
+
+		// Run Accept in a goroutine so we can preempt it with webDone
+		type acceptResult struct {
+			conn *quic.Conn
+			err  error
+		}
+		accChan := make(chan acceptResult, 1)
+		go func() {
+			c, e := multiListener.Accept(acceptCtx)
+			accChan <- acceptResult{c, e}
+		}()
+
+		var conn *quic.Conn
+		var err error
+		select {
+		case <-webDone:
+			sendMsg(ui.StatusMsg("Transfer complete via Web Application!"))
+			cancel()
+			return
+		case res := <-accChan:
+			conn = res.conn
+			err = res.err
+		}
 		cancel()
 
 		if err != nil {

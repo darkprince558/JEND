@@ -92,3 +92,25 @@ func (c *RegistryClient) Lookup(code string) (*RegistryItem, error) {
 
 	return &item, nil
 }
+
+// Deregister sends a DELETE request to remove a peer by code.
+func (c *RegistryClient) Deregister(code string) error {
+	url := fmt.Sprintf("%s/lookup/%s", c.Endpoint, code)
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return fmt.Errorf("create deregister request failed: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("deregister request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("deregister failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}

@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -20,6 +19,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/darkprince558/jend/internal/config"
 	"github.com/darkprince558/jend/internal/core"
+	"github.com/darkprince558/jend/internal/osutils"
 	"github.com/darkprince558/jend/internal/signaling"
 	"github.com/darkprince558/jend/internal/transport"
 	"github.com/darkprince558/jend/internal/ui"
@@ -235,7 +235,7 @@ func startSender(filePath string, textContent string, isText bool, headless bool
 
 	// Handle Signals
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, osutils.ShutdownSignals...)
 	go func() {
 		<-sigChan
 		cancel()
@@ -339,7 +339,7 @@ func startQRSender(filePath string, textContent string, isText bool, forceTar, f
 	defer cancel()
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, osutils.ShutdownSignals...)
 	go func() {
 		<-sigChan
 		fmt.Println("\nShutting down...")
@@ -519,7 +519,7 @@ func startCloudQRSender(filePath string, textContent string, isText bool, forceT
 
 	// Handle interrupt
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, osutils.ShutdownSignals...)
 	go func() {
 		<-sigChan
 		fmt.Println("\n\nShutting down...")

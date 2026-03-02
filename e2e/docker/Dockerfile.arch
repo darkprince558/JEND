@@ -1,0 +1,20 @@
+FROM archlinux:base
+
+# Update system and install Go and other test dependencies
+RUN pacman -Syu --noconfirm && \
+    pacman -S --noconfirm go curl jq unzip bash
+
+WORKDIR /app
+
+# Copy dependency files first for caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source
+COPY . .
+
+# Build binary
+RUN go build -o /usr/local/bin/jend ./cmd/jend
+
+# Default command
+CMD ["jend", "--help"]
