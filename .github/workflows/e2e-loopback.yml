@@ -53,6 +53,16 @@ jobs:
         fi
         echo "TRANSFER_CODE=$CODE" >> $GITHUB_ENV
 
+    - name: Allow JEND through Windows Firewall
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        $absPath = Resolve-Path ".\jend.exe"
+        New-NetFirewallRule -DisplayName "JEND CI Inbound" -Direction Inbound -Program $absPath.Path -Action Allow -Protocol UDP
+        New-NetFirewallRule -DisplayName "JEND CI Outbound" -Direction Outbound -Program $absPath.Path -Action Allow -Protocol UDP
+        New-NetFirewallRule -DisplayName "JEND CI Port Inbound" -Direction Inbound -LocalPort 9000 -Protocol UDP -Action Allow
+        New-NetFirewallRule -DisplayName "JEND CI Port Outbound" -Direction Outbound -RemotePort 9000 -Protocol UDP -Action Allow
+
     - name: Run Sender Background (Windows)
       if: runner.os == 'Windows'
       shell: powershell
@@ -68,13 +78,6 @@ jobs:
             Write-Error "Failed to extract code from sender logs."
             exit 1
         }
-
-    - name: Allow JEND through Windows Firewall
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: |
-        $absPath = Resolve-Path ".\jend.exe"
-        New-NetFirewallRule -DisplayName "JEND CI" -Direction Inbound -Program $absPath.Path -Action Allow
 
     - name: Run Receiver (Unix)
       if: runner.os != 'Windows'
