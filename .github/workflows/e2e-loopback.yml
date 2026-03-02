@@ -53,15 +53,12 @@ jobs:
         fi
         echo "TRANSFER_CODE=$CODE" >> $GITHUB_ENV
 
-    - name: Allow JEND through Windows Firewall
+    - name: Disable Windows Firewall
       if: runner.os == 'Windows'
       shell: powershell
       run: |
-        $absPath = Resolve-Path ".\jend.exe"
-        New-NetFirewallRule -DisplayName "JEND CI Inbound" -Direction Inbound -Program $absPath.Path -Action Allow -Protocol UDP
-        New-NetFirewallRule -DisplayName "JEND CI Outbound" -Direction Outbound -Program $absPath.Path -Action Allow -Protocol UDP
-        New-NetFirewallRule -DisplayName "JEND CI Port Inbound" -Direction Inbound -LocalPort 9000 -Protocol UDP -Action Allow
-        New-NetFirewallRule -DisplayName "JEND CI Port Outbound" -Direction Outbound -RemotePort 9000 -Protocol UDP -Action Allow
+        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+        Write-Output "Windows Firewall disabled for all profiles."
 
     - name: Run Sender Background (Windows)
       if: runner.os == 'Windows'
@@ -76,15 +73,27 @@ jobs:
             echo "TRANSFER_CODE=$code" >> $env:GITHUB_ENV
         } else {
             Write-Error "Failed to extract code from sender logs."
+            if (Test-Path "sender_err.log") { Get-Content sender_err.log }
             exit 1
         }
+
+    - name: Verify Sender is Listening (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        Write-Output "--- Sender Process ---"
+        Get-Process jend -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
+        Write-Output "--- UDP Listeners on port 9000 ---"
+        netstat -anop UDP | Select-String "9000"
+        Write-Output "--- Sender stderr ---"
+        if (Test-Path "sender_err.log") { Get-Content sender_err.log }
 
     - name: Run Receiver (Unix)
       if: runner.os != 'Windows'
       run: |
         echo "Receiving with code: ${{ env.TRANSFER_CODE }}"
         ./jend receive ${{ env.TRANSFER_CODE }} --dir ./e2e_output --headless --no-history
-        
+
     - name: Run Receiver (Windows)
       if: runner.os == 'Windows'
       shell: powershell
