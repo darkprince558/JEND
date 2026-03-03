@@ -53,6 +53,9 @@ type WebRTCUploadReceiverConfig struct {
 	// OnApprovalRequired asks the user whether to accept a file. If it returns false, the file is skipped.
 	OnApprovalRequired func(name string, size int64) bool
 
+	// OnTextComplete is called when a block of text/URL is received from the browser.
+	OnTextComplete func(text string)
+
 	// OnError is called when an error occurs during transfer.
 	OnError func(err error)
 }
@@ -248,6 +251,12 @@ type uploadFileMeta struct {
 	Size int64  `json:"size"`
 }
 
+// uploadTextMeta is the JSON structure sent by the browser for raw text snippets.
+type uploadTextMeta struct {
+	Type    string `json:"type"` // "text"
+	Content string `json:"content"`
+}
+
 // handleTextMessage processes string messages from the browser DataChannel.
 func (r *WebRTCUploadReceiver) handleTextMessage(
 	dc *webrtc.DataChannel,
@@ -280,6 +289,16 @@ func (r *WebRTCUploadReceiver) handleTextMessage(
 
 	// Handle "done" — all files sent, session complete.
 	if data == "done" {
+		return
+	}
+
+	// Handle raw text snippets
+	var textMeta uploadTextMeta
+	if err := json.Unmarshal([]byte(data), &textMeta); err == nil && textMeta.Type == "text" {
+		if textMeta.Content != "" && r.config.OnTextComplete != nil {
+			r.config.OnTextComplete(textMeta.Content)
+		}
+		_ = dc.SendText("text-ok")
 		return
 	}
 

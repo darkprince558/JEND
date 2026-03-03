@@ -56,6 +56,9 @@ type QRUploadServerConfig struct {
 	// OnApprovalRequired asks the user whether to accept a file. If it returns false, the file is skipped.
 	OnApprovalRequired func(name string, size int64) bool
 
+	// OnTextComplete is called when a block of text/URL is received from the browser.
+	OnTextComplete func(text string)
+
 	// OnExpire is called when ExpireAfter fires.
 	OnExpire func()
 }
@@ -104,6 +107,7 @@ func (s *QRUploadServer) Start(ctx context.Context) error {
 	prefix := fmt.Sprintf("/u/%s", s.token)
 	mux.HandleFunc(prefix, s.handlePage)
 	mux.HandleFunc(prefix+"/upload", s.handleUpload)
+	mux.HandleFunc(prefix+"/upload-text", s.handleTextUpload)
 	mux.HandleFunc(prefix+"/status", s.handleStatus)
 
 	addr := fmt.Sprintf(":%d", s.config.Port)

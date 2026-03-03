@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -112,6 +113,41 @@ func (s *QRUploadServer) handlePage(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	html := buildUploadPageHTML(s.config.MaxUploads, s.config.ExpireAfter)
 	_, _ = fmt.Fprint(w, html)
+}
+
+// textUploadRequest describes the expected JSON body for text uploads.
+type textUploadRequest struct {
+	Text string `json:"text"`
+}
+
+// handleTextUpload processes incoming raw text or URL snippets from the browser.
+func (s *QRUploadServer) handleTextUpload(w http.ResponseWriter, r *http.Request) {
+	setCORSHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req textUploadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"Invalid JSON"}`, http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if req.Text != "" && s.config.OnTextComplete != nil {
+		s.config.OnTextComplete(req.Text)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{"ok":true}`)
 }
 
 // ── Helper Functions ──────────────────────────────────────────────────────────

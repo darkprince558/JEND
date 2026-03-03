@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/darkprince558/jend/internal/config"
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -80,7 +81,7 @@ func GetUpdateNotice(currentVersion string) string {
 
 	// Very simple check: if the latest version from our cache is different, notify.
 	// Since we only query /releases/latest, it shouldn't go backwards.
-	if current != latest {
+	if semver.Compare(latest, current) > 0 {
 		return fmt.Sprintf("\n  \033[36m\033[1mA new version of JEND is available! (%s)\033[0m\n  Run \033[1mjend update\033[0m to install it.\n", latest)
 	}
 

@@ -77,18 +77,17 @@ transform:scale(1.02)}
 /* ── Buttons ── */
 .btn{display:block;width:100%;padding:16px;border:none;border-radius:12px;cursor:pointer;
 font-size:1.1rem;font-weight:700;letter-spacing:0.04em;transition:all 0.2s ease;
-text-decoration:none;color:#FFFFFE}
-.btn-upload{background:linear-gradient(135deg,#7F5AF0,#6B3FD4);
-box-shadow:0 4px 24px rgba(127,90,240,0.35);margin-top:12px}
-.btn-upload:hover{transform:translateY(-2px);box-shadow:0 6px 32px rgba(127,90,240,0.5)}
-.btn-upload:active{transform:translateY(0)}
-.btn-upload:disabled{opacity:0.4;cursor:not-allowed;transform:none;box-shadow:none}
-.btn-camera{background:linear-gradient(135deg,#2CB67D,#1A9D6C);
-box-shadow:0 4px 24px rgba(44,182,125,0.3);margin-top:8px;font-size:0.95rem;padding:14px}
-.btn-camera:hover{transform:translateY(-2px);box-shadow:0 6px 32px rgba(44,182,125,0.4)}
-.btn-more{background:rgba(127,90,240,0.15);color:#7F5AF0;margin-top:12px;font-size:0.9rem;
-padding:12px;border:1px solid rgba(127,90,240,0.3)}
-.btn-more:hover{background:rgba(127,90,240,0.25)}
+text-decoration:none;color:#FFFFFE;margin-bottom:12px;
+background:linear-gradient(135deg,#7F5AF0,#6B3FD4);
+box-shadow:0 4px 24px rgba(127,90,240,0.35);}
+
+.btn:hover{transform:translateY(-2px);box-shadow:0 6px 32px rgba(127,90,240,0.5)}
+.btn:active{transform:translateY(0)}
+.btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;box-shadow:none}
+
+.btn-more{background:rgba(127,90,240,0.15);color:#7F5AF0;font-size:0.9rem;
+padding:12px;border:1px solid rgba(127,90,240,0.3);box-shadow:none;margin-bottom:0}
+.btn-more:hover{background:rgba(127,90,240,0.25);transform:translateY(-1px);box-shadow:none}
 
 /* ── File List ── */
 .file-list{text-align:left;margin:16px 0;max-height:200px;overflow-y:auto}
@@ -102,6 +101,13 @@ text-overflow:ellipsis;max-width:200px}
 width:24px;height:24px;display:flex;align-items:center;justify-content:center;
 border-radius:50%;transition:all 0.2s}
 .file-item-remove:hover{background:rgba(255,100,100,0.15);color:#ff6b6b}
+
+/* ── Text Input ── */
+.text-zone{margin-top:24px}
+.text-area{width:100%;background:#16161A;border:1px solid rgba(127,90,240,0.3);border-radius:12px;padding:12px;
+color:#FFFFFE;font-family:inherit;font-size:0.95rem;resize:vertical;min-height:80px;margin-bottom:12px;
+transition:border-color 0.2s}
+.text-area:focus{outline:none;border-color:#7F5AF0}
 
 /* ── Progress ── */
 .progress-wrap{display:none;margin-top:20px}
@@ -162,17 +168,25 @@ func uploadPageBody(metaHTML string) string {
         <div class="drop-hint">or drag & drop here</div>
       </div>
 
-      <button class="btn btn-camera" onclick="document.getElementById('cameraInput').click()">
+      <button class="btn" onclick="document.getElementById('cameraInput').click()">
         📷 Take Photo
       </button>
 
-      <input type="file" id="fileInput" class="hidden" multiple accept="*/*">
-      <input type="file" id="cameraInput" class="hidden" accept="image/*" capture="environment">
+      <input type="file" id="fileInput" class="hidden" multiple accept="*/*,image/heic,image/heif">
+      <input type="file" id="cameraInput" class="hidden" accept="image/*,image/heic,image/heif" capture="environment">
 
       <div class="file-list" id="fileList"></div>
 
-      <button class="btn btn-upload" id="uploadBtn" disabled onclick="startUpload()">
+      <button class="btn" id="uploadBtn" disabled onclick="startUpload()">
         Upload Files
+      </button>
+
+      <div class="text-zone">
+        <textarea id="textInput" class="text-area" placeholder="Or paste text / URL here..."></textarea>
+      </div>
+
+      <button class="btn" id="sendTextBtn" onclick="sendText()">
+        Send Text
       </button>
     </div>
 
@@ -369,6 +383,43 @@ function resetUpload() {
   document.getElementById('doneWrap').style.display = 'none';
   document.getElementById('progressFill').style.width = '0%';
   document.getElementById('statusText').textContent = 'Ready';
+}
+
+// ── Text Sending ──
+
+function sendText() {
+  var textInput = document.getElementById('textInput');
+  var text = textInput.value.trim();
+  if (!text) return;
+
+  var btn = document.getElementById('sendTextBtn');
+  var origText = btn.textContent;
+  btn.textContent = 'Sending...';
+  btn.disabled = true;
+
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', window.location.pathname + '/upload-text', true);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  
+  xhr.addEventListener('load', function() {
+    btn.disabled = false;
+    if (xhr.status === 200) {
+      btn.textContent = 'Sent!';
+      textInput.value = '';
+      setTimeout(function(){ btn.textContent = origText; }, 2000);
+    } else {
+      btn.textContent = 'Failed';
+      setTimeout(function(){ btn.textContent = origText; }, 2000);
+    }
+  });
+
+  xhr.addEventListener('error', function() {
+    btn.disabled = false;
+    btn.textContent = 'Error';
+    setTimeout(function(){ btn.textContent = origText; }, 2000);
+  });
+
+  xhr.send(JSON.stringify({ text: text }));
 }
 
 // ── Utilities ──

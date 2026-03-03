@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/darkprince558/jend/internal/config"
@@ -55,10 +56,37 @@ Example:
   jend receive --relay-url "turn:my.relay.click" ...`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		code := ""
+
+		// Interactive unified menu if no args and no QR flag are supplied
+		if len(args) == 0 && !recUseQR && !headless {
+			opts, err := ui.RunReceivePrompt()
+			if err != nil || opts.Cancelled {
+				fmt.Println("Cancelled.")
+				return
+			}
+
+			if opts.Mode == "code" {
+				code = opts.TransferCode // Fall through to standard P2P below
+			} else if opts.Mode == "qr" {
+				recUseQR = true
+				recQRLimit = opts.QROpts.MaxDownloads
+				recQRExpire = opts.QROpts.ExpireAfter
+				recAutoApprove = opts.QROpts.AutoApprove
+				if opts.QROpts.Mode == "cloud" {
+					recQRMode = "cloud"
+				}
+			}
+		}
+
 		// QR mode: start upload server instead of P2P receiver
 		if recUseQR {
-			// Show interactive prompt if no explicit flags were set AND not headless
-			if !cmd.Flags().Changed("qr-limit") && !cmd.Flags().Changed("qr-expire") && !cmd.Flags().Changed("qr-mode") && !headless {
+			// Show interactive QR prompt if no explicit flags were set AND not headless
+			// (If they came from the unified menu above, this prompt is skipped because flags like qr-limit are logically "set" by the struct logic, but cobra Flags().Changed() checks actual CLI flags. Let's fix that by ensuring the unified menu bypasses this inner prompt.)
+			needsPrompt := !cmd.Flags().Changed("qr-limit") && !cmd.Flags().Changed("qr-expire") && !cmd.Flags().Changed("qr-mode") && !headless
+
+			// We only need the inner prompt if they ran `jend receive --qr` directly.
+			if needsPrompt && len(args) > 0 { // len(args) > 0 check ensures it didn't come from unified menu
 				opts, err := ui.RunQRPrompt()
 				if err != nil || opts.Cancelled {
 					fmt.Println("Cancelled.")
@@ -93,11 +121,14 @@ Example:
 		}
 
 		// Normal P2P receive — code is required
-		if len(args) == 0 {
+		if code == "" && len(args) > 0 {
+			code = args[0]
+		}
+
+		if code == "" {
 			fmt.Println("Error: code argument is required (use --qr for phone upload mode)")
 			os.Exit(1)
 		}
-		code := args[0]
 
 		// Handle Incognito
 		if recIncognito {
@@ -197,18 +228,23 @@ func startQRReceiver(outputDir string) {
 		cancel()
 	}()
 
+	logActiveStyle := lipgloss.NewStyle().Foreground(ui.ColorAccent)
+	logSuccessStyle := lipgloss.NewStyle().Foreground(ui.ColorSuccess)
+	logWarnStyle := lipgloss.NewStyle().Foreground(ui.ColorWarning)
+	logMutedStyle := lipgloss.NewStyle().Foreground(ui.ColorSubtext)
+
 	srv := core.NewQRUploadServer(core.QRUploadServerConfig{
 		OutputDir:   outputDir,
 		Port:        8888,
 		MaxUploads:  recQRLimit,
 		ExpireAfter: recQRExpire,
 		OnUploadStart: func(filename string) {
-			fmt.Printf("\r  ⬆ Receiving: %s", filename)
+			fmt.Printf("\r  %s %s\033[K", logActiveStyle.Render("⬇"), filename)
 		},
 		OnProgress: func(recv, total int64) {
 			if total > 0 {
 				pct := float64(recv) / float64(total) * 100
-				fmt.Printf("\r  ⬆ Receiving... %.0f%%", pct)
+				fmt.Printf("\r  %s %-30s %.0f%%\033[K", logActiveStyle.Render("⬇"), "Receiving...", pct)
 			}
 		},
 		OnApprovalRequired: func(name string, size int64) bool {
@@ -218,25 +254,34 @@ func startQRReceiver(outputDir string) {
 			return ui.PromptApproval(name, formatBytesReceive(size))
 		},
 		OnComplete: func(filename string, uploadCount int) {
-			fmt.Printf("\r  ✓ Saved: %s  (upload #%d)\n", filename, uploadCount)
+			fmt.Printf("\r  %s %s %s\033[K\n", logSuccessStyle.Render("✓"), filename, logMutedStyle.Render(fmt.Sprintf("(file #%d)", uploadCount)))
 			if recQRLimit > 0 {
 				remaining := recQRLimit - uploadCount
 				if remaining > 0 {
-					fmt.Printf("  %d/%d uploads used. Ctrl+C to stop.\n", uploadCount, recQRLimit)
+					fmt.Printf("  %s %s\n", logMutedStyle.Render("..."), logMutedStyle.Render(fmt.Sprintf("%d/%d uploads used. Ctrl+C to stop.", uploadCount, recQRLimit)))
 				}
 			} else {
-				fmt.Println("  Waiting for more uploads... (Ctrl+C to stop)")
+				fmt.Printf("  %s %s\n", logMutedStyle.Render("..."), logMutedStyle.Render("Waiting for more uploads... (Ctrl+C to stop)"))
 			}
 		},
+		OnTextComplete: func(text string) {
+			fmt.Printf("\r  %s Received Text:\033[K\n\n%s\n\n", logSuccessStyle.Render("✓"), ui.CodeStyle.Render(text))
+			if !recNoClipboard {
+				if err := clipboard.WriteAll(text); err == nil {
+					fmt.Printf("  %s\n", logMutedStyle.Render("(Copied to clipboard)"))
+				}
+			}
+			fmt.Printf("  %s %s\n", logMutedStyle.Render("..."), logMutedStyle.Render("Waiting for more... (Ctrl+C to stop)"))
+		},
 		OnLimitReached: func() {
-			fmt.Printf("\n  Upload limit (%d) reached. Shutting down...\n", recQRLimit)
+			fmt.Printf("\n  %s %s\n", logWarnStyle.Render("!"), logWarnStyle.Render(fmt.Sprintf("Upload limit (%d) reached. Shutting down...", recQRLimit)))
 			go func() {
 				time.Sleep(2 * time.Second)
 				cancel()
 			}()
 		},
 		OnExpire: func() {
-			fmt.Printf("\n  QR code expired after %s. Shutting down...\n", recQRExpire)
+			fmt.Printf("\n  %s %s\n", logWarnStyle.Render("!"), logWarnStyle.Render(fmt.Sprintf("QR code expired after %s. Shutting down...", recQRExpire)))
 		},
 	})
 
@@ -307,20 +352,26 @@ func startCloudQRReceiver(outputDir string) {
 	}
 	defer signalClient.Disconnect()
 
+	logActiveStyle := lipgloss.NewStyle().Foreground(ui.ColorAccent)
+	logSuccessStyle := lipgloss.NewStyle().Foreground(ui.ColorSuccess)
+	logWarnStyle := lipgloss.NewStyle().Foreground(ui.ColorWarning)
+	logErrorStyle := lipgloss.NewStyle().Foreground(ui.ColorError)
+	logMutedStyle := lipgloss.NewStyle().Foreground(ui.ColorSubtext)
+
 	// Create WebRTC upload receiver.
 	receiver := transport.NewWebRTCUploadReceiver(signalClient, transport.WebRTCUploadReceiverConfig{
 		Token:     token,
 		OutputDir: outputDir,
 		OnConnected: func() {
-			fmt.Printf("\r  ✓ Phone connected via WebRTC\n")
+			fmt.Printf("\r  %s Phone connected via WebRTC\033[K\n", logSuccessStyle.Render("✓"))
 		},
 		OnFileStart: func(name string, size int64) {
-			fmt.Printf("\r  ⬆ Receiving: %s (%s)\n", name, formatBytesReceive(size))
+			fmt.Printf("\r  %s %s %s\033[K", logActiveStyle.Render("⬇"), name, logMutedStyle.Render("("+formatBytesReceive(size)+")"))
 		},
 		OnProgress: func(recv, total int64) {
 			if total > 0 {
 				pct := float64(recv) / float64(total) * 100
-				fmt.Printf("\r  ⬆ Receiving... %.0f%%", pct)
+				fmt.Printf("\r  %s %-30s %.0f%%\033[K", logActiveStyle.Render("⬇"), "Receiving...", pct)
 			}
 		},
 		OnApprovalRequired: func(name string, size int64) bool {
@@ -330,16 +381,25 @@ func startCloudQRReceiver(outputDir string) {
 			return ui.PromptApproval(name, formatBytesReceive(size))
 		},
 		OnFileComplete: func(name string, fileCount int) {
-			fmt.Printf("\r  ✓ Saved: %s  (file #%d)\n", name, fileCount)
+			fmt.Printf("\r  %s %s %s\033[K\n", logSuccessStyle.Render("✓"), name, logMutedStyle.Render(fmt.Sprintf("(file #%d)", fileCount)))
 			if recQRLimit > 0 && fileCount >= recQRLimit {
-				fmt.Printf("\n  Limit of %d files reached. Shutting down...\n", recQRLimit)
+				fmt.Printf("\n  %s %s\n", logWarnStyle.Render("!"), logWarnStyle.Render(fmt.Sprintf("Limit of %d files reached. Shutting down...", recQRLimit)))
 				cancel()
 			} else {
-				fmt.Println("  Waiting for more files... (Ctrl+C to stop)")
+				fmt.Printf("  %s %s\n", logMutedStyle.Render("..."), logMutedStyle.Render("Waiting for more files... (Ctrl+C to stop)"))
 			}
 		},
+		OnTextComplete: func(text string) {
+			fmt.Printf("\r  %s Received Text:\033[K\n\n%s\n\n", logSuccessStyle.Render("✓"), ui.CodeStyle.Render(text))
+			if !recNoClipboard {
+				if err := clipboard.WriteAll(text); err == nil {
+					fmt.Printf("  %s\n", logMutedStyle.Render("(Copied to clipboard)"))
+				}
+			}
+			fmt.Printf("  %s %s\n", logMutedStyle.Render("..."), logMutedStyle.Render("Waiting for more... (Ctrl+C to stop)"))
+		},
 		OnError: func(err error) {
-			fmt.Printf("\n  Error: %v\n", err)
+			fmt.Printf("\n  %s %s\n", logErrorStyle.Render("✗"), logErrorStyle.Render(err.Error()))
 		},
 	})
 
