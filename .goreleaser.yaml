@@ -93,13 +93,19 @@ winget:
   - name: jend
     publisher: darkprince558
     license: MIT
-    license_url: "https://github.com/darkprince558/JEND/blob/main/LICENSE"
+    license_url: "https://github.com/darkprince558/jend/blob/main/LICENSE"
     short_description: "JEND: Just Enough Network Drop - Modern, secure, P2P file transfer."
     homepage: "https://github.com/darkprince558/jend"
     repository:
       owner: darkprince558
       name: winget-pkgs
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
     commit_author:
       name: "goreleaserbot"
       email: "bot@goreleaser.com"
