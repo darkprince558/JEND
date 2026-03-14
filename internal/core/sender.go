@@ -275,6 +275,37 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 	}
 	defer cleanup()
 
+	// Pre-compute file hash before accepting connections.
+	// This MUST happen here (not inside handleConnection) because:
+	// 1. Hashing a large file can take >10s, which exceeds QUIC MaxIdleTimeout
+	// 2. Inside handleConnection, the stream is already open and idle during hashing
+	// 3. This also avoids a race condition with the shared file reader across goroutines
+	sendMsg(ui.StatusMsg("Calculating checksum..."))
+	{
+		hasher := sha256.New()
+		if seeker, ok := file.(io.Seeker); ok {
+			if _, err := seeker.Seek(0, 0); err != nil {
+				finalErr = err
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to seek file for hashing: %w", err), Level: ui.LevelFatal})
+				return
+			}
+		}
+		if _, err := io.Copy(hasher, file); err != nil {
+			finalErr = err
+			sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to hash file: %w", err), Level: ui.LevelFatal})
+			return
+		}
+		fileHash = fmt.Sprintf("%x", hasher.Sum(nil))
+		// Reset file position for transfer
+		if seeker, ok := file.(io.Seeker); ok {
+			if _, err := seeker.Seek(0, 0); err != nil {
+				finalErr = err
+				sendMsg(ui.DetailedErrorMsg{Err: fmt.Errorf("failed to reset file position: %w", err), Level: ui.LevelFatal})
+				return
+			}
+		}
+	}
+
 	// Start Listener
 	tr := transport.NewQUICTransport()
 
@@ -457,7 +488,7 @@ func RunSender(ctx context.Context, p *tea.Program, role ui.Role, filePath, text
 					}
 				}()
 
-				done, _ := handleConnection(ctx, s, file, isText, fileName, code, currentOffset, fileSize, startTime, startModTime, sendMsg, false)
+				done, _ := handleConnection(ctx, s, file, isText, fileName, code, fileHash, currentOffset, fileSize, startTime, startModTime, sendMsg, false)
 				if done {
 					cancelAccept()
 					transferDone = true
@@ -488,6 +519,7 @@ func handleConnection(
 	isText bool,
 	fileName string,
 	code string,
+	fileHash string,
 	currentOffset int64,
 	fileSize int64,
 	startTime time.Time,
@@ -513,19 +545,8 @@ func handleConnection(
 		sendMsg(ui.StatusMsg("Authenticated! Connection Encrypted."))
 	}
 
-	sendMsg(ui.StatusMsg("Calculating checksum..."))
-	hasher := sha256.New()
-
-	if seeker, ok := file.(io.Seeker); ok {
-		if _, err := seeker.Seek(0, 0); err != nil {
-			return false, err
-		}
-	}
-
-	if _, err := io.Copy(hasher, file); err != nil {
-		return false, err
-	}
-	fileHash := fmt.Sprintf("%x", hasher.Sum(nil))
+	// File hash is pre-computed in RunSender before accepting connections
+	// to avoid QUIC idle timeout during hashing of large files
 
 	meta := map[string]interface{}{
 		"name": fileName,

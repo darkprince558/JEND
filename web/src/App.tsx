@@ -96,7 +96,7 @@ function App() {
 
       <header style={{ padding: '2rem', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
         <a href="/" style={{ textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', cursor: 'pointer', transition: 'transform 0.2s', ...({ ':hover': { transform: 'scale(1.05)' } } as any) }}>
-          <img src="/logo-arrow.png" alt="Arrow Logo" style={{ height: '48px', objectFit: 'contain' }} />
+          <img src="./logo-arrow.png" alt="Arrow Logo" style={{ height: '48px', objectFit: 'contain' }} />
           <pre style={{
             margin: 0,
             fontSize: '10px',

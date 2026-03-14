@@ -13,11 +13,13 @@ package core
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/darkprince558/jend/internal/web"
 	"github.com/google/uuid"
 )
 
@@ -105,10 +107,24 @@ func (s *QRUploadServer) Token() string {
 func (s *QRUploadServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	prefix := fmt.Sprintf("/u/%s", s.token)
+	
 	mux.HandleFunc(prefix, s.handlePage)
+	mux.HandleFunc(prefix+"/", s.handlePage)
+
 	mux.HandleFunc(prefix+"/upload", s.handleUpload)
 	mux.HandleFunc(prefix+"/upload-text", s.handleTextUpload)
 	mux.HandleFunc(prefix+"/status", s.handleStatus)
+	mux.HandleFunc(prefix+"/info", s.handleInfo)
+
+	// Serve React UI assets
+	fsys, err := fs.Sub(web.Content, "dist")
+	if err != nil {
+		return fmt.Errorf("failed to load web assets: %w", err)
+	}
+	mux.Handle(prefix+"/assets/", http.StripPrefix(prefix+"/", http.FileServer(http.FS(fsys))))
+	mux.Handle(prefix+"/logo-arrow.png", http.StripPrefix(prefix+"/", http.FileServer(http.FS(fsys))))
+	mux.Handle(prefix+"/vite.svg", http.StripPrefix(prefix+"/", http.FileServer(http.FS(fsys))))
+
 
 	addr := fmt.Sprintf(":%d", s.config.Port)
 	s.server = &http.Server{

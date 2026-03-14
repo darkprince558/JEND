@@ -48,6 +48,21 @@ func (m ReceivePromptModel) Init() tea.Cmd {
 	return m.qrModel.Init()
 }
 
+// normalizeCode converts spaces to hyphens and lowercases the input
+// so users can type "apple brave cat" and it becomes "apple-brave-cat".
+func normalizeCode(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	// Replace spaces with hyphens
+	normalized := strings.ReplaceAll(trimmed, " ", "-")
+	// Collapse multiple hyphens into one
+	for strings.Contains(normalized, "--") {
+		normalized = strings.ReplaceAll(normalized, "--", "-")
+	}
+	// Trim trailing hyphens
+	normalized = strings.Trim(normalized, "-")
+	return normalized
+}
+
 func (m ReceivePromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// If we are in the QR settings phase, delegate all updates to the sub-model.
 	if m.phase == phaseQRSettings {
@@ -77,6 +92,8 @@ func (m ReceivePromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "esc":
 			if m.phase == phaseEnterCode {
 				m.phase = phaseReceiveMode
+				m.code = ""
+				m.errCodeValid = ""
 				return m, nil
 			}
 			m.result.Cancelled = true
@@ -101,21 +118,21 @@ func (m ReceivePromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if m.phase == phaseEnterCode {
-				trimmed := strings.TrimSpace(m.code)
-				if trimmed == "" {
-					m.errCodeValid = "Code cannot be empty"
+				normalized := normalizeCode(m.code)
+				if normalized == "" {
+					m.errCodeValid = "Please enter a transfer code"
 					return m, nil
 				}
-				parts := strings.Split(trimmed, "-")
-				// Simple validation for 3 words or a 6 char cloud code.
-				if len(trimmed) >= 6 || len(parts) >= 3 {
+				parts := strings.Split(normalized, "-")
+				// Accept 3+ hyphenated words OR a 6+ character cloud code
+				if len(parts) >= 3 || len(normalized) >= 6 {
 					m.result = ReceiveOptions{
 						Mode:         "code",
-						TransferCode: trimmed,
+						TransferCode: normalized,
 					}
 					return m, tea.Quit
 				}
-				m.errCodeValid = "Format must be 3 words (e.g. apple-brave-cat) or 6 chars (e.g. A1b2C3)"
+				m.errCodeValid = "Enter 3 words (e.g. apple brave cat) or a 6-char code (e.g. A1b2C3)"
 				return m, nil
 			}
 
@@ -129,11 +146,11 @@ func (m ReceivePromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		default:
 			if m.phase == phaseEnterCode {
-				// Only accept a-z, A-Z, 0-9, and hyphens. Max reasonable length ~50
 				s := msg.String()
-				if len(s) == 1 && len(m.code) < 50 {
+				if len(s) == 1 && len(m.code) < 60 {
 					c := s[0]
-					if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' {
+					// Accept letters, digits, hyphens, and spaces
+					if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == ' ' {
 						m.code += s
 						m.errCodeValid = ""
 					}
@@ -154,46 +171,80 @@ func (m ReceivePromptModel) View() string {
 		return m.qrModel.View()
 	}
 
+	// Styles
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
-	selectedItemStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
-	unselectedItemStyle := lipgloss.NewStyle().Foreground(ColorSubtext)
+	pointerStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+	selectedStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	unselectedStyle := lipgloss.NewStyle().Foreground(ColorSubtext)
 	helpStyle := lipgloss.NewStyle().Foreground(ColorSubtext).Faint(true)
-	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6b6b"))
-	boxStyle := lipgloss.NewStyle().
+	errorStyle := lipgloss.NewStyle().Foreground(ColorError).Bold(true)
+	labelStyle := lipgloss.NewStyle().Foreground(ColorSubtext)
+	codeDisplayStyle := lipgloss.NewStyle().
+		Foreground(ColorAccent).
+		Bold(true)
+	inputBoxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorPrimary).
-		Padding(0, 1)
+		Padding(0, 2).
+		Width(42)
+	previewStyle := lipgloss.NewStyle().
+		Foreground(ColorSuccess).
+		Bold(true)
 
 	s := "\n"
 	s += titleStyle.Render("  How would you like to receive files?") + "\n\n"
 
 	if m.phase == phaseReceiveMode {
 		choices := []string{
-			"Enter Transfer Code (P2P)",
+			"Enter Transfer Code",
 			"Scan QR (Upload from Phone)",
+		}
+		descs := []string{
+			"Receive via P2P using a 3-word or cloud code",
+			"Start a local server and scan QR from your phone",
 		}
 
 		for i, choice := range choices {
 			if i == m.modeIdx {
-				s += fmt.Sprintf("  %s %s\n", selectedItemStyle.Render("›"), selectedItemStyle.Render(choice))
+				s += fmt.Sprintf("  %s %s\n", pointerStyle.Render("›"), selectedStyle.Render(choice))
+				s += fmt.Sprintf("    %s\n", helpStyle.Render(descs[i]))
 			} else {
-				s += fmt.Sprintf("    %s\n", unselectedItemStyle.Render(choice))
+				s += fmt.Sprintf("    %s\n", unselectedStyle.Render(choice))
+				s += fmt.Sprintf("    %s\n", helpStyle.Render(descs[i]))
 			}
 		}
 		s += "\n"
 		s += helpStyle.Render("  ↑↓ navigate · enter select · esc cancel") + "\n"
 
 	} else if m.phase == phaseEnterCode {
-		s += "  Enter the 3-word code or 6-char Cloud code:\n"
-		s += fmt.Sprintf("  %s\n", boxStyle.Render(m.code+"█"))
+		s += labelStyle.Render("  Enter your transfer code below.") + "\n"
+		s += helpStyle.Render("  You can use spaces or hyphens between words.") + "\n\n"
 
-		if m.errCodeValid != "" {
-			s += "\n  " + errorStyle.Render("⚠ "+m.errCodeValid) + "\n"
-		} else {
-			s += "\n" // spacing
+		// Render the input box with the raw typed text
+		displayText := m.code + "█"
+		s += "  " + inputBoxStyle.Render(codeDisplayStyle.Render(displayText)) + "\n"
+
+		// Show the normalized preview if there is input
+		normalized := normalizeCode(m.code)
+		if normalized != "" {
+			s += "\n"
+			s += fmt.Sprintf("  %s  %s\n", labelStyle.Render("Code:"), previewStyle.Render(normalized))
 		}
 
-		s += "\n" + helpStyle.Render("  type code · enter confirm · esc back") + "\n"
+		if m.errCodeValid != "" {
+			s += "\n"
+			s += "  " + errorStyle.Render("✗ "+m.errCodeValid) + "\n"
+		}
+
+		s += "\n"
+
+		// Show accepted format examples
+		exampleStyle := lipgloss.NewStyle().Foreground(ColorAccent).Faint(true)
+		s += helpStyle.Render("  Examples: ") +
+			exampleStyle.Render("apple brave cat") +
+			helpStyle.Render("  or  ") +
+			exampleStyle.Render("A1b2C3") + "\n"
+		s += helpStyle.Render("  enter confirm · esc back") + "\n"
 	}
 
 	return s
