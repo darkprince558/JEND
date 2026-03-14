@@ -54,7 +54,7 @@ brews:
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     
     # Formula Description
-    description: "JEND: Just Enough Network Drop - Modern, secure, P2P file transfer."
+    description: "JEND - Modern, secure, P2P file transfer."
     homepage: "https://github.com/darkprince558/jend"
     license: "MIT"
 
@@ -69,7 +69,7 @@ scoops:
       owner: darkprince558
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    description: "JEND: Just Enough Network Drop - Modern, secure, P2P file transfer."
+    description: "JEND - Modern, secure, P2P file transfer."
     homepage: "https://github.com/darkprince558/jend"
     license: MIT
 
@@ -79,7 +79,7 @@ nfpms:
     vendor: "darkprince558"
     homepage: "https://github.com/darkprince558/jend"
     maintainer: "darkprince558 <darkprince558@users.noreply.github.com>"
-    description: "JEND: Just Enough Network Drop - Modern, secure, P2P file transfer."
+    description: "JEND - Modern, secure, P2P file transfer."
     license: "MIT"
     formats:
       - deb
@@ -94,7 +94,7 @@ winget:
     publisher: darkprince558
     license: MIT
     license_url: "https://github.com/darkprince558/jend/blob/main/LICENSE"
-    short_description: "JEND: Just Enough Network Drop - Modern, secure, P2P file transfer."
+    short_description: "JEND - Modern, secure, P2P file transfer."
     homepage: "https://github.com/darkprince558/jend"
     repository:
       owner: darkprince558
@@ -114,7 +114,7 @@ winget:
 aurs:
   - name: jend-bin
     homepage: "https://github.com/darkprince558/jend"
-    description: "JEND: Just Enough Network Drop - Modern, secure, P2P file transfer."
+    description: "JEND - Modern, secure, P2P file transfer."
     maintainers:
       - "darkprince558 <darkprince558@users.noreply.github.com>"
     license: MIT
