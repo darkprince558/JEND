@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JEND · Upload to Laptop</title>
+    <style>
+        /* ── Reset & Base ── */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        body {
+            background: #16161A;
+            color: #FFFFFE;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px
+        }
+
+        .container {
+            max-width: 420px;
+            width: 100%;
+            text-align: center
+        }
+
+        .logo {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.55rem;
+            line-height: 1.15;
+            color: #7F5AF0;
+            margin-bottom: 16px;
+            white-space: pre;
+            text-align: left;
+            display: inline-block
+        }
+
+        .subtitle {
+            color: #94A1B2;
+            font-size: 0.85rem;
+            margin-bottom: 28px
+        }
+
+        /* ── Card ── */
+        .card {
+            background: #242629;
+            border-radius: 16px;
+            padding: 28px 24px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(127, 90, 240, 0.15)
+        }
+
+        .meta {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 20px
+        }
+
+        .meta-item {
+            background: #16161A;
+            border-radius: 10px;
+            padding: 12px 14px;
+            min-width: 100px
+        }
+
+        .meta-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #94A1B2;
+            margin-bottom: 4px
+        }
+
+        .meta-value {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #FFFFFE
+        }
+
+        .meta-value.connecting {
+            color: #E2B93B
+        }
+
+        .meta-value.connected {
+            color: #2CB67D
+        }
+
+        .meta-value.error {
+            color: #ff6b6b
+        }
+
+        /* ── Drop Zone ── */
+        .drop-zone {
+            border: 2px dashed rgba(127, 90, 240, 0.4);
+            border-radius: 16px;
+            padding: 40px 20px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            margin-bottom: 20px
+        }
+
+        .drop-zone:hover,
+        .drop-zone.dragover {
+            border-color: #7F5AF0;
+            background: rgba(127, 90, 240, 0.05);
+            transform: scale(1.02)
+        }
+
+        .drop-zone.dragover {
+            background: rgba(127, 90, 240, 0.1)
+        }
+
+        .drop-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            opacity: 0.7
+        }
+
+        .drop-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 6px
+        }
+
+        .drop-hint {
+            font-size: 0.85rem;
+            color: #94A1B2
+        }
+
+        /* ── Buttons ── */
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            transition: all 0.2s ease;
+            color: #FFFFFE
+        }
+
+        .btn-upload {
+            background: linear-gradient(135deg, #7F5AF0, #6B3FD4);
+            box-shadow: 0 4px 24px rgba(127, 90, 240, 0.35);
+            margin-top: 12px
+        }
+
+        .btn-upload:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 32px rgba(127, 90, 240, 0.5)
+        }
+
+        .btn-upload:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none
+        }
+
+        .btn-camera {
+            background: linear-gradient(135deg, #2CB67D, #1A9D6C);
+            box-shadow: 0 4px 24px rgba(44, 182, 125, 0.3);
+            margin-top: 8px;
+            font-size: 0.95rem;
+            padding: 14px
+        }
+
+        .btn-camera:hover {
+            transform: translateY(-2px)
+        }
+
+        .btn-more {
+            background: rgba(127, 90, 240, 0.15);
+            color: #7F5AF0;
+            margin-top: 12px;
+            font-size: 0.9rem;
+            padding: 12px;
+            border: 1px solid rgba(127, 90, 240, 0.3)
+        }
+
+        .btn-more:hover {
+            background: rgba(127, 90, 240, 0.25)
+        }
+
+        /* ── File List ── */
+        .file-list {
+            text-align: left;
+            margin: 16px 0;
+            max-height: 200px;
+            overflow-y: auto
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: #16161A;
+            border-radius: 10px;
+            margin-bottom: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.05)
+        }
+
+        .file-item-name {
+            font-size: 0.85rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px
+        }
+
+        .file-item-size {
+            font-size: 0.75rem;
+            color: #94A1B2;
+            white-space: nowrap;
+            margin-left: 8px
+        }
+
+        .file-item-remove {
+            color: #94A1B2;
+            cursor: pointer;
+            font-size: 1.2rem;
+            margin-left: 8px;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.2s
+        }
+
+        .file-item-remove:hover {
+            background: rgba(255, 100, 100, 0.15);
+            color: #ff6b6b
+        }
+
+        /* ── Progress ── */
+        .progress-bar {
+            height: 6px;
+            background: #1a1a1e;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 20px
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #7F5AF0, #00F0FF);
+            border-radius: 3px;
+            transition: width 0.2s
+        }
+
+        .progress-text {
+            font-size: 0.8rem;
+            color: #94A1B2;
+            margin-top: 8px
+        }
+
+        /* ── Done ── */
+        .done-wrap {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(44, 182, 125, 0.08);
+            border-radius: 12px;
+            border: 1px solid rgba(44, 182, 125, 0.2);
+            text-align: center
+        }
+
+        .done-icon {
+            font-size: 48px;
+            margin-bottom: 8px
+        }
+
+        .done-msg {
+            color: #2CB67D;
+            font-weight: 700;
+            font-size: 1rem
+        }
+
+        .done-detail {
+            color: #94A1B2;
+            font-size: 0.85rem;
+            margin-top: 6px
+        }
+
+        /* ── Code Input ── */
+        .code-section {
+            margin-bottom: 20px
+        }
+
+        .code-input {
+            width: 100%;
+            max-width: 200px;
+            padding: 12px 16px;
+            background: #16161A;
+            border: 2px solid rgba(127, 90, 240, 0.3);
+            border-radius: 10px;
+            color: #FFFFFE;
+            font-size: 1.3rem;
+            text-align: center;
+            letter-spacing: 3px;
+            font-family: monospace;
+            outline: none;
+            transition: border-color 0.2s
+        }
+
+        .code-input:focus {
+            border-color: #7F5AF0
+        }
+
+        .code-hint {
+            font-size: 0.8rem;
+            color: #94A1B2;
+            margin-top: 8px
+        }
+
+        .footer {
+            color: #94A1B2;
+            font-size: 0.7rem;
+            margin-top: 24px;
+            opacity: 0.6
+        }
+
+        .footer a {
+            color: #7F5AF0;
+            text-decoration: none
+        }
+
+        .hidden {
+            display: none
+        }
+
+        @media(max-width:400px) {
+            .card {
+                padding: 20px 16px
+            }
+
+            .logo {
+                font-size: 0.45rem
+            }
+
+            .drop-zone {
+                padding: 30px 16px
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <pre class="logo">     ██╗███████╗███╗   ██╗██████╗ 
+     ██║██╔════╝████╗  ██║██╔══██╗
+     ██║█████╗  ██╔██╗ ██║██║  ██║
+██   ██║██╔══╝  ██║╚██╗██║██║  ██║
+╚█████╔╝███████╗██║ ╚████║██████╔╝
+ ╚════╝ ╚══════╝╚═╝  ╚═══╝╚═════╝ </pre>
+        <div class="subtitle">Send files to your laptop via cloud</div>
+
+        <div class="card">
+            <div class="meta">
+                <div class="meta-item">
+                    <div class="meta-label">Status</div>
+                    <div class="meta-value" id="statusText">Connecting...</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Mode</div>
+                    <div class="meta-value" style="color:#00F0FF">Cloud (WebRTC)</div>
+                </div>
+            </div>
+
+            <!-- Code Input (shown when no hash) -->
+            <div id="codeSection" class="code-section" style="display:none">
+                <div style="font-size:0.9rem;margin-bottom:12px;color:#94A1B2">Enter the code shown on your laptop:
+                </div>
+                <input type="text" class="code-input" id="codeInput" maxlength="6" placeholder="Af38HJ"
+                    oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,'')" autocomplete="off" autocorrect="off"
+                    spellcheck="false">
+                <div class="code-hint">6-character code from your terminal</div>
+                <button class="btn btn-upload" style="margin-top:16px" onclick="connectWithCode()">Connect</button>
+            </div>
+
+            <!-- Upload Area (shown after connected) -->
+            <div id="uploadArea" style="display:none">
+                <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+                    <div class="drop-icon">📁</div>
+                    <div class="drop-title">Tap to select files</div>
+                    <div class="drop-hint">or drag & drop here</div>
+                </div>
+                <button class="btn btn-camera" onclick="document.getElementById('cameraInput').click()">📷 Take
+                    Photo</button>
+                <input type="file" id="fileInput" class="hidden" multiple accept="*/*">
+                <input type="file" id="cameraInput" class="hidden" accept="image/*" capture="environment">
+                <div class="file-list" id="fileList"></div>
+                <button class="btn btn-upload" id="uploadBtn" disabled onclick="startUpload()">Upload Files</button>
+            </div>
+
+            <!-- Progress Area -->
+            <div id="progressArea" style="display:none">
+                <div style="font-size:0.95rem;font-weight:600;margin-bottom:8px" id="progressLabel">Sending...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">Preparing...</div>
+            </div>
+
+            <!-- Done Area -->
+            <div class="done-wrap" id="doneWrap">
+                <div class="done-icon">✅</div>
+                <div class="done-msg" id="doneMsg">Upload Complete!</div>
+                <div class="done-detail" id="doneDetail"></div>
+                <button class="btn btn-more" onclick="resetUpload()">Send More Files</button>
+            </div>
+        </div>
+        <div class="footer">Powered by <a href="https://github.com/darkprince558/jend">JEND</a> · End-to-end encrypted
+            file transfer</div>
+    </div>
+
+    <!-- AWS SDK for Cognito + MQTT -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/aws-sdk/2.1555.0/aws-sdk.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+    <script>
+        // ── Configuration ──
+        var REGION = 'us-east-1';
+        var IOT_ENDPOINT = 'a1f3yqmyj74r8-ats.iot.us-east-1.amazonaws.com';
+        var IDENTITY_POOL_ID = 'us-east-1:1001ee5c-20fb-40c2-9e96-a140fcdcb8ea';
+        var CHUNK_SIZE = 16 * 1024; // 16 KB, matches the CLI receiver
+
+        // ── State ──
+        var token = '';
+        var mqttClient = null;
+        var peerConnection = null;
+        var dataChannel = null;
+        var selectedFiles = [];
+        var sessionId = 'browser-' + Math.random().toString(36).substring(2, 9);
+        var statusEl = document.getElementById('statusText');
+
+        // ── Initialization ──
+
+        // Check URL hash for token
+        var hash = window.location.hash.substring(1);
+        if (hash && hash.length >= 4) {
+            token = hash;
+            statusEl.textContent = 'Connecting...';
+            statusEl.className = 'meta-value connecting';
+            connectMQTT();
+        } else {
+            document.getElementById('codeSection').style.display = 'block';
+            statusEl.textContent = 'Enter Code';
+            statusEl.className = 'meta-value';
+        }
+
+        function connectWithCode() {
+            var code = document.getElementById('codeInput').value.trim();
+            if (code.length < 4) return;
+            token = code;
+            window.location.hash = token;
+            document.getElementById('codeSection').style.display = 'none';
+            statusEl.textContent = 'Connecting...';
+            statusEl.className = 'meta-value connecting';
+            connectMQTT();
+        }
+
+        // ── MQTT Connection ──
+
+        function connectMQTT() {
+            AWS.config.region = REGION;
+            AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+                IdentityPoolId: IDENTITY_POOL_ID
+            });
+
+            AWS.config.credentials.get(function (err) {
+                if (err) {
+                    statusEl.textContent = 'Auth Failed';
+                    statusEl.className = 'meta-value error';
+                    console.error('Cognito error:', err);
+                    return;
+                }
+                initMQTTWebSocket();
+            });
+        }
+
+        function initMQTTWebSocket() {
+            // Sign the WebSocket URL for AWS IoT
+            var creds = AWS.config.credentials;
+            var time = new Date();
+            var dateStamp = time.toISOString().replace(/[:-]|\.\d{3}/g, '').substring(0, 8);
+            var amzDate = time.toISOString().replace(/[:-]|\.\d{3}/g, '');
+
+            var service = 'iotdevicegateway';
+            var host = IOT_ENDPOINT;
+            var canonicalURI = '/mqtt';
+            var method = 'GET';
+
+            var algorithm = 'AWS4-HMAC-SHA256';
+            var credentialScope = dateStamp + '/' + REGION + '/' + service + '/aws4_request';
+
+            var canonicalQuerystring = 'X-Amz-Algorithm=' + algorithm;
+            canonicalQuerystring += '&X-Amz-Credential=' + encodeURIComponent(creds.accessKeyId + '/' + credentialScope);
+            canonicalQuerystring += '&X-Amz-Date=' + amzDate;
+            canonicalQuerystring += '&X-Amz-SignedHeaders=host';
+
+            var canonicalHeaders = 'host:' + host + '\n';
+            var payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'; // SHA256 of empty string
+
+            var canonicalRequest = method + '\n' + canonicalURI + '\n' + canonicalQuerystring + '\n' + canonicalHeaders + '\nhost\n' + payloadHash;
+
+            var stringToSign = algorithm + '\n' + amzDate + '\n' + credentialScope + '\n' + sha256(canonicalRequest);
+
+            var signingKey = getSignatureKey(creds.secretAccessKey, dateStamp, REGION, service);
+            var signature = hmacHex(signingKey, stringToSign);
+
+            canonicalQuerystring += '&X-Amz-Signature=' + signature;
+            if (creds.sessionToken) {
+                canonicalQuerystring += '&X-Amz-Security-Token=' + encodeURIComponent(creds.sessionToken);
+            }
+
+            var url = 'wss://' + host + canonicalURI + '?' + canonicalQuerystring;
+
+            // Connect via Paho MQTT
+            var clientId = 'jend-upload-' + token + '-' + Math.random().toString(36).substring(2, 6);
+            mqttClient = new Paho.Client(url, clientId);
+
+            mqttClient.onConnectionLost = function (resp) {
+                console.log('MQTT lost:', resp.errorMessage);
+                statusEl.textContent = 'Disconnected';
+                statusEl.className = 'meta-value error';
+            };
+
+            mqttClient.onMessageArrived = function (message) {
+                handleSignalingMessage(JSON.parse(message.payloadString));
+            };
+
+            mqttClient.connect({
+                useSSL: true,
+                mqttVersion: 4,
+                onSuccess: function () {
+                    var topic = 'jend/signal/qr-' + token;
+                    mqttClient.subscribe(topic);
+                    console.log('MQTT connected, subscribed to', topic);
+                    initWebRTC();
+                },
+                onFailure: function (err) {
+                    console.error('MQTT connect failed:', err);
+                    statusEl.textContent = 'Connection Failed';
+                    statusEl.className = 'meta-value error';
+                }
+            });
+        }
+
+        // ── WebRTC ──
+
+        function initWebRTC() {
+            statusEl.textContent = 'Connecting...';
+            statusEl.className = 'meta-value connecting';
+
+            peerConnection = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            });
+
+            // Create the DataChannel (browser is the caller).
+            dataChannel = peerConnection.createDataChannel('jend-upload');
+            dataChannel.binaryType = 'arraybuffer';
+
+            dataChannel.onopen = function () {
+                statusEl.textContent = 'Connected';
+                statusEl.className = 'meta-value connected';
+                document.getElementById('uploadArea').style.display = 'block';
+            };
+
+            dataChannel.onmessage = function (event) {
+                var msg = event.data;
+                if (typeof msg === 'string') {
+                    if (msg === 'file-ok') {
+                        onFileConfirmed();
+                    } else if (msg.startsWith('file-error:')) {
+                        onFileError(msg.substring(11));
+                    }
+                }
+            };
+
+            dataChannel.onerror = function (err) {
+                console.error('DataChannel error:', err);
+                statusEl.textContent = 'Error';
+                statusEl.className = 'meta-value error';
+            };
+
+            // Send ICE candidates to the CLI.
+            peerConnection.onicecandidate = function (event) {
+                if (event.candidate) {
+                    publishSignal({
+                        type: 'ice',
+                        candidate: event.candidate.candidate,
+                        sdpMid: event.candidate.sdpMid || '',
+                        sdpMLineIndex: event.candidate.sdpMLineIndex || 0,
+                        sessionId: sessionId
+                    });
+                }
+            };
+
+            // Create offer and send via MQTT.
+            peerConnection.createOffer().then(function (offer) {
+                return peerConnection.setLocalDescription(offer);
+            }).then(function () {
+                publishSignal({
+                    type: 'offer',
+                    sdp: peerConnection.localDescription.sdp,
+                    sessionId: sessionId
+                });
+            });
+        }
+
+        function handleSignalingMessage(msg) {
+            if (!peerConnection) return;
+
+            if (msg.type === 'answer' && msg.sessionId === sessionId) {
+                peerConnection.setRemoteDescription(new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: msg.sdp
+                }));
+            } else if (msg.type === 'ice-server' && msg.sessionId === sessionId) {
+                peerConnection.addIceCandidate(new RTCIceCandidate({
+                    candidate: msg.candidate,
+                    sdpMid: msg.sdpMid || '0',
+                    sdpMLineIndex: msg.sdpMLineIndex || 0
+                }));
+            }
+        }
+
+        function publishSignal(msg) {
+            if (!mqttClient) return;
+            var topic = 'jend/signal/qr-' + token;
+            var message = new Paho.Message(JSON.stringify(msg));
+            message.destinationName = topic;
+            mqttClient.send(message);
+        }
+
+        // ── File Selection ──
+
+        var fileInput = document.getElementById('fileInput');
+        var cameraInput = document.getElementById('cameraInput');
+        var dropZone = document.getElementById('dropZone');
+        var fileList = document.getElementById('fileList');
+        var uploadBtn = document.getElementById('uploadBtn');
+
+        fileInput.addEventListener('change', function (e) { addFiles(Array.from(e.target.files)); e.target.value = ''; });
+        cameraInput.addEventListener('change', function (e) { addFiles(Array.from(e.target.files)); e.target.value = ''; });
+
+        dropZone.addEventListener('dragover', function (e) { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', function (e) { e.preventDefault(); dropZone.classList.remove('dragover'); });
+        dropZone.addEventListener('drop', function (e) {
+            e.preventDefault(); dropZone.classList.remove('dragover');
+            addFiles(Array.from(e.dataTransfer.files));
+        });
+
+        function addFiles(newFiles) {
+            for (var i = 0; i < newFiles.length; i++) selectedFiles.push(newFiles[i]);
+            renderFileList();
+        }
+
+        function removeFile(idx) {
+            selectedFiles.splice(idx, 1);
+            renderFileList();
+        }
+
+        function renderFileList() {
+            fileList.innerHTML = '';
+            for (var i = 0; i < selectedFiles.length; i++) {
+                var f = selectedFiles[i];
+                var div = document.createElement('div');
+                div.className = 'file-item';
+                div.innerHTML = '<span class="file-item-name">' + escapeHtml(f.name) + '</span>' +
+                    '<span class="file-item-size">' + formatBytes(f.size) + '</span>' +
+                    '<span class="file-item-remove" onclick="removeFile(' + i + ')">×</span>';
+                fileList.appendChild(div);
+            }
+            uploadBtn.disabled = selectedFiles.length === 0;
+            uploadBtn.textContent = selectedFiles.length === 0 ? 'Upload Files' :
+                'Upload ' + selectedFiles.length + ' file' + (selectedFiles.length > 1 ? 's' : '');
+        }
+
+        // ── File Upload via DataChannel ──
+
+        var uploadQueue = [];
+        var currentFileIndex = 0;
+        var totalFilesCount = 0;
+        var fileConfirmResolve = null;
+
+        function startUpload() {
+            if (selectedFiles.length === 0 || !dataChannel || dataChannel.readyState !== 'open') return;
+
+            document.getElementById('uploadArea').style.display = 'none';
+            document.getElementById('progressArea').style.display = 'block';
+
+            uploadQueue = selectedFiles.slice();
+            currentFileIndex = 0;
+            totalFilesCount = uploadQueue.length;
+            sendNextFile();
+        }
+
+        function sendNextFile() {
+            if (currentFileIndex >= uploadQueue.length) {
+                // All files sent.
+                dataChannel.send('done');
+                document.getElementById('progressArea').style.display = 'none';
+                document.getElementById('doneWrap').style.display = 'block';
+                document.getElementById('doneMsg').textContent = 'Upload Complete!';
+                document.getElementById('doneDetail').textContent = totalFilesCount + ' file' +
+                    (totalFilesCount > 1 ? 's' : '') + ' sent to laptop';
+                statusEl.textContent = 'Done';
+                statusEl.className = 'meta-value connected';
+                return;
+            }
+
+            var file = uploadQueue[currentFileIndex];
+            document.getElementById('progressLabel').textContent =
+                'Sending (' + (currentFileIndex + 1) + '/' + totalFilesCount + '): ' + file.name;
+
+            // Send file metadata.
+            dataChannel.send(JSON.stringify({
+                type: 'file-meta',
+                name: file.name,
+                size: file.size
+            }));
+
+            // Stream the file in chunks.
+            var offset = 0;
+            var reader = new FileReader();
+
+            function readSlice(o) {
+                var slice = file.slice(o, Math.min(o + CHUNK_SIZE, file.size));
+                reader.readAsArrayBuffer(slice);
+            }
+
+            reader.onload = function (e) {
+                if (!e.target.result || dataChannel.readyState !== 'open') return;
+
+                // Backpressure: wait if the buffer is getting full.
+                function sendWhenReady() {
+                    if (dataChannel.bufferedAmount > 1024 * 1024) {
+                        setTimeout(sendWhenReady, 10);
+                        return;
+                    }
+                    dataChannel.send(e.target.result);
+                    offset += e.target.result.byteLength;
+
+                    var pct = Math.min(Math.round((offset / file.size) * 100), 100);
+                    document.getElementById('progressFill').style.width = pct + '%';
+                    document.getElementById('progressText').textContent = pct + '% — ' + formatBytes(offset) + ' / ' + formatBytes(file.size);
+
+                    if (offset < file.size) {
+                        readSlice(offset);
+                    } else {
+                        // File fully sent — send EOF and wait for confirmation.
+                        dataChannel.send('EOF');
+                    }
+                }
+                sendWhenReady();
+            };
+
+            readSlice(0);
+        }
+
+        function onFileConfirmed() {
+            currentFileIndex++;
+            document.getElementById('progressFill').style.width = '0%';
+            sendNextFile();
+        }
+
+        function onFileError(msg) {
+            document.getElementById('progressText').textContent = 'Error: ' + msg;
+            statusEl.textContent = 'Error';
+            statusEl.className = 'meta-value error';
+        }
+
+        function resetUpload() {
+            selectedFiles = [];
+            renderFileList();
+            document.getElementById('uploadArea').style.display = 'block';
+            document.getElementById('progressArea').style.display = 'none';
+            document.getElementById('doneWrap').style.display = 'none';
+            document.getElementById('progressFill').style.width = '0%';
+            statusEl.textContent = 'Connected';
+            statusEl.className = 'meta-value connected';
+        }
+
+        // ── AWS SigV4 Helpers ──
+
+        function sha256(message) {
+            var hash = AWS.util.crypto.sha256(message, 'hex');
+            return hash;
+        }
+
+        function hmac(key, message) {
+            return AWS.util.crypto.hmac(key, message, 'buffer');
+        }
+
+        function hmacHex(key, message) {
+            return AWS.util.crypto.hmac(key, message, 'hex');
+        }
+
+        function getSignatureKey(key, dateStamp, regionName, serviceName) {
+            var kDate = hmac('AWS4' + key, dateStamp);
+            var kRegion = hmac(kDate, regionName);
+            var kService = hmac(kRegion, serviceName);
+            var kSigning = hmac(kService, 'aws4_request');
+            return kSigning;
+        }
+
+        function formatBytes(b) {
+            if (b < 1024) return b + ' B';
+            if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+            if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+            return (b / 1073741824).toFixed(1) + ' GB';
+        }
+
+        function escapeHtml(s) {
+            var d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+    </script>
+</body>
+
+</html>
