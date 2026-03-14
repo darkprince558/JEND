@@ -107,6 +107,7 @@ func Execute() {
 }
 
 func init() {
+	config.AppVersion = version
 	rootCmd.AddCommand(versionCmd)
 
 	// Persistent Flags (Available to all commands)

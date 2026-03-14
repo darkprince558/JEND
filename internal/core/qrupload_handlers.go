@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"sync"
 
 	"github.com/darkprince558/jend/internal/osutils"
+	"github.com/darkprince558/jend/internal/config"
+	"github.com/darkprince558/jend/internal/web"
 )
 
 var uploadMu sync.Mutex
@@ -38,6 +41,22 @@ func (s *QRUploadServer) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	fmt.Fprintf(w, `{"uploads":%d,"remaining":%d}`, count, remaining)
+}
+
+// handleInfo returns system info like the target hostname
+func (s *QRUploadServer) handleInfo(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "Laptop"
+	} else {
+		// Clean up the ".local" suffix common on Macs
+		hostname = strings.TrimSuffix(hostname, ".local")
+	}
+
+	fmt.Fprintf(w, `{"target":"%s","version":"%s"}`, hostname, config.AppVersion)
 }
 
 // handleUpload processes multipart file uploads from the phone browser.
@@ -107,12 +126,22 @@ func (s *QRUploadServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePage serves the mobile-friendly HTML upload page.
-// The page is generated inline (no external files) so it works on any device
-// that can reach the server over WiFi.
-func (s *QRUploadServer) handlePage(w http.ResponseWriter, _ *http.Request) {
+func (s *QRUploadServer) handlePage(w http.ResponseWriter, r *http.Request) {
+	// Require trailing slash so React relative paths "./assets/..." resolve correctly
+	if !strings.HasSuffix(r.URL.Path, "/") {
+		http.Redirect(w, r, r.URL.Path+"/", http.StatusMovedPermanently)
+		return
+	}
+
+	// Serve the React index.html
+	indexHTML, err := fs.ReadFile(web.Content, "dist/index.html")
+	if err != nil {
+		http.Error(w, "Failed to load page", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	html := buildUploadPageHTML(s.config.MaxUploads, s.config.ExpireAfter)
-	_, _ = fmt.Fprint(w, html)
+	_, _ = w.Write(indexHTML)
 }
 
 // textUploadRequest describes the expected JSON body for text uploads.
