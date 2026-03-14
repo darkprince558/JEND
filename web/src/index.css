@@ -3,7 +3,7 @@
 
 @font-face {
   font-family: 'Geist Pixel';
-  src: url('/GeistPixel-Square.woff2') format('woff2');
+  src: url('./assets/fonts/GeistPixel-Square.woff2') format('woff2');
   font-style: normal;
   font-display: swap;
 }
